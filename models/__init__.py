@@ -6,6 +6,7 @@ from models.producto import Producto
 from models.carrito import Carrito, DetalleCarrito
 from models.pedido import Pedido, DetallePedido
 from models.resena import Resena
+from models.recuperacion_contrasena import RecuperacionContrasena
 
 __all__ = [
     'db',
@@ -17,5 +18,6 @@ __all__ = [
     'DetalleCarrito',
     'Pedido',
     'DetallePedido',
-    'Resena'
+    'Resena',
+    'RecuperacionContrasena'
 ]

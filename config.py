@@ -19,6 +19,17 @@ class Config:
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'jwt-secret-key-change-in-production')
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
+    
+    # Frontend URL para enlaces en emails
+    FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+    
+    # Email (ZohoMail)
+    SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.zoho.com')
+    SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
+    SMTP_USER = os.environ.get('SMTP_USER')
+    SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
+    FROM_EMAIL = os.environ.get('FROM_EMAIL', SMTP_USER)
+    FROM_NAME = os.environ.get('FROM_NAME', 'KeiBeauty')
 
 
 class DevelopmentConfig(Config):

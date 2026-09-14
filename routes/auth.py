@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-from models import db, Usuario
+from models import db, Usuario, RecuperacionContrasena
+from utils.email import email_service
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -92,3 +93,74 @@ def refresh():
     usuario_id = get_jwt_identity()
     access_token = create_access_token(identity=usuario_id)
     return jsonify({'access_token': access_token}), 200
+
+
+@auth_bp.route('/olvide-contrasena', methods=['POST'])
+def olvide_contrasena():
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Datos JSON requeridos.'}), 400
+
+    email = data.get('email')
+    if not email:
+        return jsonify({'error': 'Email es requerido.'}), 400
+
+    usuario = Usuario.query.filter_by(email=email).first()
+
+    # Siempre respondemos éxito por seguridad (no revelar si email existe)
+    if usuario:
+        try:
+            token, recuperacion = RecuperacionContrasena.crear_solicitud(usuario.id)
+            
+            frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:5173')
+            email_service.enviar_recuperacion_contrasena(
+                to_email=usuario.email,
+                nombre=usuario.nombre,
+                token=token,
+                frontend_url=frontend_url
+            )
+        except Exception as e:
+            current_app.logger.error(f'Error enviando email recuperacion: {e}')
+            # No fallamos la request por seguridad
+
+    return jsonify({
+        'data': None,
+        'message': 'Si el email existe, recibirás instrucciones para restablecer tu contraseña.'
+    }), 200
+
+
+@auth_bp.route('/reestablecer-contrasena', methods=['POST'])
+def reestablecer_contrasena():
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Datos JSON requeridos.'}), 400
+
+    token = data.get('token')
+    password = data.get('password')
+    confirm_password = data.get('confirm_password')
+
+    if not token or not password:
+        return jsonify({'error': 'Token y nueva contraseña son requeridos.'}), 400
+
+    if password != confirm_password:
+        return jsonify({'error': 'Las contraseñas no coinciden.'}), 400
+
+    if len(password) < 6:
+        return jsonify({'error': 'La contraseña debe tener al menos 6 caracteres.'}), 400
+
+    recuperacion, error = RecuperacionContrasena.validar_token(token)
+    if error:
+        return jsonify({'error': error}), 400
+
+    usuario = db.session.get(Usuario, recuperacion.usuario_id)
+    if not usuario:
+        return jsonify({'error': 'Usuario no encontrado.'}), 404
+
+    usuario.set_password(password)
+    recuperacion.marcar_como_usado()
+    db.session.commit()
+
+    return jsonify({
+        'data': None,
+        'message': 'Contraseña restablecida exitosamente. Ya puedes iniciar sesión.'
+    }), 200
