@@ -2,12 +2,14 @@ import os
 from flask import Flask
 from flask_cors import CORS
 from flask_migrate import Migrate
+from flask_jwt_extended import JWTManager
 from config import config
 from models.db import init_db
 from models import db
 from routes import auth_bp, products_bp
 
 migrate = Migrate()
+jwt = JWTManager()
 
 
 def create_app(config_name=None):
@@ -17,10 +19,11 @@ def create_app(config_name=None):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
 
-    CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=True)
+    CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=True, allow_headers=['Content-Type', 'Authorization'], methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
     init_db(app)
     migrate.init_app(app, db)
+    jwt.init_app(app)
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(products_bp)

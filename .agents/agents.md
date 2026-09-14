@@ -19,7 +19,7 @@
 2. Aplicar validaciones estrictas en pedidos e inventario (ej. verificar stock antes de confirmar una compra).
 3. Mantener endpoints limpios en `routes/` usando Blueprints y modelos en `models/`.
 4. Generar codigo con variables, nombres de clases/archivos priorizando el español.
-5. Documentar en el README.md lo relacionado a endpoints, json que responden o json que requieren.
+5. Documentar en el README.md lo relacionado a endpoints, json que responden o json que requieren, al igual que contratos json y documentacion necesaria para consumir la api en el frontend.
 6. La documentacion interna con comentarios debe hacerse en español.
 
 ## Documentación del Proyecto

@@ -28,7 +28,7 @@ services:
       FLASK_ENV: development
       DATABASE_URL: postgresql://postgres:postgres@db:5432/keibeauty_db
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173}
     ports:
       - "5000:5000"
     depends_on:
