@@ -12,7 +12,10 @@ class Config:
         'postgresql://postgres:postgres@localhost:5432/keibeauty_db'
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Permitir cualquier puerto en localhost para desarrollo
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173').split(',')
+    # Regex para permitir localhost en cualquier puerto (desarrollo) - flask-cors entiende regex strings
+    CORS_ORIGINS_REGEX = r'https?://(localhost|127\.0\.0\.1)(:\d+)?'
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'jwt-secret-key-change-in-production')
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)

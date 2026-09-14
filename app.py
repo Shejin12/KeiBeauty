@@ -19,7 +19,17 @@ def create_app(config_name=None):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
 
-    CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=True, allow_headers=['Content-Type', 'Authorization'], methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+    # CORS configuration: allow explicit origins + regex for localhost any port
+    cors_origins = app.config['CORS_ORIGINS']
+    cors_regex = app.config.get('CORS_ORIGINS_REGEX')
+    
+    # Combine origins list with regex pattern - flask-cors accepts regex strings in origins list
+    if cors_regex:
+        origins = cors_origins + [cors_regex]
+    else:
+        origins = cors_origins
+    
+    CORS(app, origins=origins, supports_credentials=True, allow_headers=['Content-Type', 'Authorization'], methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
     init_db(app)
     migrate.init_app(app, db)
