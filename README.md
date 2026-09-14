@@ -453,6 +453,160 @@ Authorization: Bearer <access_token_admin>
 }
 ```
 
+### Carrito (`/api/carrito`)
+
+| Método | Endpoint | Descripción | Autenticación |
+|--------|----------|-------------|---------------|
+| GET | `/` | Obtener carrito del usuario (crea si no existe) | JWT |
+| POST | `/items` | Añadir producto al carrito | JWT |
+| PUT | `/items/<id>` | Actualizar cantidad de item | JWT |
+| DELETE | `/items/<id>` | Eliminar item del carrito | JWT |
+| DELETE | `/` | Vaciar carrito | JWT |
+
+#### GET /api/carrito
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response (200):**
+```json
+{
+  "data": {
+    "id": 1,
+    "usuario_id": 1,
+    "fecha_creacion": "2026-09-14T21:07:21.304258",
+    "fecha_actualizacion": "2026-09-14T21:11:39.200963",
+    "detalles": [
+      {
+        "id": 1,
+        "carrito_id": 1,
+        "producto_id": 1,
+        "cantidad": 2,
+        "fecha_agregado": "2026-09-14T21:08:22.801133",
+        "subtotal": 29.8,
+        "producto": {
+          "id": 1,
+          "nombre": "Low pH Good Morning Gel Cleanser",
+          "descripcion": "Limpiador gel suave...",
+          "ingredientes_clave": "Aceite de arbol de te, BHA, centella asiatica",
+          "tipo_piel": "Mixta, grasa, sensible",
+          "precio": 14.90,
+          "stock": 50,
+          "imagen_url": "https://example.com/products/cosrx-cleanser.jpg",
+          "estado": "activo",
+          "marca_id": 1,
+          "categoria_id": 1,
+          "marca_nombre": "COSRX",
+          "categoria_nombre": "Limpieza",
+          "fecha_creacion": "2026-09-14T01:46:23.411889"
+        }
+      }
+    ]
+  },
+  "message": "Carrito obtenido exitosamente."
+}
+```
+
+#### POST /api/carrito/items
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "producto_id": 1,
+  "cantidad": 2
+}
+```
+
+**Response (201):**
+```json
+{
+  "data": {
+    "id": 1,
+    "usuario_id": 1,
+    "fecha_creacion": "2026-09-14T21:07:21.304258",
+    "fecha_actualizacion": "2026-09-14T21:08:22.782995",
+    "detalles": [
+      {
+        "id": 1,
+        "carrito_id": 1,
+        "producto_id": 1,
+        "cantidad": 2,
+        "fecha_agregado": "2026-09-14T21:08:22.801133",
+        "subtotal": 29.8,
+        "producto": { ... }
+      }
+    ]
+  },
+  "message": "Producto añadido al carrito."
+}
+```
+
+**Errores comunes:**
+- `400` - Cantidad inválida / Stock insuficiente / Producto no activo
+- `404` - Producto no encontrado
+- `401` - Token inválido o expirado
+
+#### PUT /api/carrito/items/1
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "cantidad": 3
+}
+```
+
+**Response (200):**
+```json
+{
+  "data": { ... carrito actualizado ... },
+  "message": "Carrito actualizado exitosamente."
+}
+```
+
+#### DELETE /api/carrito/items/1
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response (200):**
+```json
+{
+  "data": { ... carrito actualizado ... },
+  "message": "Item eliminado del carrito."
+}
+```
+
+#### DELETE /api/carrito
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response (200):**
+```json
+{
+  "data": { ... carrito vacío ... },
+  "message": "Carrito vaciado exitosamente."
+}
+```
+
 ## Códigos de Respuesta HTTP
 
 | Código | Descripción |
