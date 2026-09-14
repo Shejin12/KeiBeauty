@@ -655,6 +655,78 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - **Access Token**: Expira en 24 horas (configurable en `JWT_ACCESS_TOKEN_EXPIRES`)
 - **Refresh Token**: Expira en 30 días (configurable en `JWT_REFRESH_TOKEN_EXPIRES`)
 
+## Flujo de Recuperación de Contraseña
+
+El sistema implementa un flujo seguro de recuperación de contraseña basado en tokens de un solo uso con expiración.
+
+### Flujo completo paso a paso:
+
+1. **Usuario solicita recuperación**
+   - En `/login`, hace click en "¿Olvidaste tu contraseña?"
+   - Frontend envía `POST /api/auth/olvide-contrasena` con `{email}`
+
+2. **Backend procesa la solicitud**
+   - Busca usuario por email en la BD
+   - **Si existe**: Genera token seguro con `secrets.token_urlsafe(32)` (32 bytes URL-safe)
+   - Calcula hash SHA-256 del token: `hashlib.sha256(token.encode()).hexdigest()`
+   - Guarda en tabla `recuperacion_contrasena`: `usuario_id`, `fecha_solicitud`, `token_hash`, `fecha_vencimiento` (24h), `usado=False`
+   - Invalida tokens previos no usados del mismo usuario (actualiza `usado=True`)
+   - Envía email (si SMTP configurado) con enlace: `FRONTEND_URL/reestablecer-contrasena?token=<token_plano>`
+   - **Si NO existe**: Devuelve **200 OK** con mensaje genérico (no revela si el email existe por seguridad)
+
+3. **Usuario recibe email y hace click**
+   - Frontend lee parámetro `?token=` de la URL en `/reestablecer-contrasena`
+
+4. **Usuario ingresa nueva contraseña**
+   - Frontend envía `POST /api/auth/reestablecer-contrasena` con `{token, password, confirm_password}`
+
+5. **Backend valida y actualiza**
+   - Calcula SHA-256 del token entrante
+   - Busca en BD por `token_hash` donde `usado=False`
+   - Valida que no esté expirado (`fecha_vencimiento > now()`) ni usado
+   - Actualiza password del usuario con `set_password()`
+   - Marca token como `usado=True`
+   - Responde 200 OK
+
+6. **Usuario hace login** con nueva contraseña
+
+### Consideraciones de seguridad:
+
+- **Token nunca en claro en BD**: Solo se guarda el hash SHA-256. El token plano solo viaja en el email y URL.
+- **Token en URL (query string)**: Estándar de la industria para password reset. Implicación: queda en logs del servidor, historial del navegador y referrers. Se mitiga con expiración corta (24h) y un solo uso.
+- **Invalidación de tokens previos**: Al crear uno nuevo, los anteriores del mismo usuario se marcan como usados.
+- **Expiración**: 24 horas por defecto (`expiracion_horas=24` en `crear_solicitud`).
+- **Rate limiting implícito**: Solo un token activo por usuario a la vez.
+- **Respuesta uniforme**: Siempre 200 OK en solicitud para no revelar existencia de emails.
+
+### Tabla BD: `recuperacion_contrasena`
+
+```sql
+CREATE TABLE recuperacion_contrasena (
+    id SERIAL PRIMARY KEY,
+    usuario_id INT REFERENCES usuarios(id),
+    fecha_solicitud TIMESTAMP NOT NULL DEFAULT NOW(),
+    token_hash VARCHAR(64) UNIQUE NOT NULL,
+    fecha_vencimiento TIMESTAMP NOT NULL,
+    usado BOOLEAN DEFAULT FALSE
+);
+```
+
+### Variables de entorno requeridas (.env)
+
+```env
+# Frontend URL para enlaces en emails
+FRONTEND_URL=http://localhost:5173
+
+# Email (ZohoMail)
+SMTP_HOST=smtp.zoho.com
+SMTP_PORT=587
+SMTP_USER=tu-email@zoho.com
+SMTP_PASSWORD=tu-password-de-app
+FROM_EMAIL=tu-email@zoho.com
+FROM_NAME=KeiBeauty
+```
+
 ## Datos de Prueba (Seed)
 
 El script `seed.py` crea:
