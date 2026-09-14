@@ -1,9 +1,13 @@
 import os
 from flask import Flask
 from flask_cors import CORS
+from flask_migrate import Migrate
 from config import config
 from models.db import init_db
+from models import db
 from routes import auth_bp, products_bp
+
+migrate = Migrate()
 
 
 def create_app(config_name=None):
@@ -16,6 +20,7 @@ def create_app(config_name=None):
     CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=True)
 
     init_db(app)
+    migrate.init_app(app, db)
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(products_bp)
