@@ -180,7 +180,7 @@ flask run --host=0.0.0.0 --port=5000
 SECRET_KEY=tu-clave-secreta-super-segura-cambiar-en-produccion
 JWT_SECRET_KEY=tu-clave-jwt-super-segura-cambiar-en-produccion
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/keibeauty_db
-CORS_ORIGINS=http://localhost:3000
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173
 FLASK_ENV=development
 FLASK_APP=app.py
 ```
@@ -287,14 +287,19 @@ Authorization: Bearer <refresh_token>
 
 | Método | Endpoint | Descripción | Autenticación | Roles |
 |--------|----------|-------------|---------------|-------|
-| GET | `/` | Listar productos | No | - |
-| GET | `/<id>` | Obtener producto | No | - |
+| GET | `/` | Listar productos (filtros: ?categoria=&marca=&buscar=) | No | - |
+| GET | `/<id>` | Obtener producto por ID | No | - |
 | POST | `/` | Crear producto | JWT | Admin |
 | PUT | `/<id>` | Actualizar producto | JWT | Admin |
 | DELETE | `/<id>` | Eliminar producto | JWT | Admin |
 | GET | `/admin-test` | Test endpoint admin | JWT | Admin |
 
 #### GET /api/products
+
+**Query Parameters (opcionales):**
+- `categoria` (int): Filtrar por ID de categoría
+- `marca` (int): Filtrar por ID de marca
+- `buscar` (string): Buscar por nombre (ILIKE)
 
 **Response (200):**
 ```json
@@ -312,9 +317,139 @@ Authorization: Bearer <refresh_token>
       "estado": "activo",
       "marca_id": 1,
       "categoria_id": 1,
+      "marca_nombre": "COSRX",
+      "categoria_nombre": "Limpieza",
       "fecha_creacion": "2026-09-14T01:46:23.411889"
     }
-  ]
+  ],
+  "message": "Productos obtenidos exitosamente."
+}
+```
+
+#### GET /api/products/1
+
+**Response (200):**
+```json
+{
+  "data": {
+    "id": 1,
+    "nombre": "Low pH Good Morning Gel Cleanser",
+    "descripcion": "Limpiador gel suave...",
+    "ingredientes_clave": "Aceite de arbol de te, BHA, centella asiatica",
+    "tipo_piel": "Mixta, grasa, sensible",
+    "precio": 14.90,
+    "stock": 50,
+    "imagen_url": "https://example.com/products/cosrx-cleanser.jpg",
+    "estado": "activo",
+    "marca_id": 1,
+    "categoria_id": 1,
+    "marca_nombre": "COSRX",
+    "categoria_nombre": "Limpieza",
+    "fecha_creacion": "2026-09-14T01:46:23.411889"
+  },
+  "message": "Producto obtenido exitosamente."
+}
+```
+
+**Response (404):**
+```json
+{
+  "error": "Producto no encontrado",
+  "message": "No existe producto con id 999"
+}
+```
+
+#### POST /api/products (Admin)
+
+**Headers:**
+```
+Authorization: Bearer <access_token_admin>
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "nombre": "Nuevo Producto Test",
+  "descripcion": "Descripción opcional",
+  "ingredientes_clave": "Ingredientes opcionales",
+  "tipo_piel": "Todo tipo de piel",
+  "precio": 25.99,
+  "stock": 10,
+  "imagen_url": "https://example.com/image.jpg",
+  "estado": "activo",
+  "marca_id": 1,
+  "categoria_id": 2
+}
+```
+
+**Response (201):**
+```json
+{
+  "data": {
+    "id": 6,
+    "nombre": "Nuevo Producto Test",
+    "descripcion": "Descripción opcional",
+    "ingredientes_clave": "Ingredientes opcionales",
+    "tipo_piel": "Todo tipo de piel",
+    "precio": 25.99,
+    "stock": 10,
+    "imagen_url": "https://example.com/image.jpg",
+    "estado": "activo",
+    "marca_id": 1,
+    "categoria_id": 2,
+    "marca_nombre": "COSRX",
+    "categoria_nombre": "Hidratacion",
+    "fecha_creacion": "2026-09-14T10:30:00.000000"
+  },
+  "message": "Producto creado exitosamente."
+}
+```
+
+**Errores comunes:**
+- `400` - Campos obligatorios faltantes / Tipos inválidos / Precio <= 0 / Stock < 0
+- `404` - Marca o Categoría no encontrada
+- `401` - Token inválido o expirado
+- `403` - No es admin
+
+#### PUT /api/products/1 (Admin)
+
+**Headers:**
+```
+Authorization: Bearer <access_token_admin>
+Content-Type: application/json
+```
+
+**Request (campos opcionales):**
+```json
+{
+  "nombre": "Nombre actualizado",
+  "precio": 29.99,
+  "stock": 5,
+  "estado": "activo"
+}
+```
+
+**Response (200):**
+```json
+{
+  "data": { ... producto actualizado ... },
+  "message": "Producto actualizado exitosamente."
+}
+```
+
+#### DELETE /api/products/1 (Admin)
+
+**Headers:**
+```
+Authorization: Bearer <access_token_admin>
+```
+
+**Response (204):**
+```json
+{
+  "data": null,
+  "message": "Producto eliminado exitosamente."
 }
 ```
 
@@ -324,26 +459,36 @@ Authorization: Bearer <refresh_token>
 |--------|-------------|
 | 200 | OK - Petición exitosa |
 | 201 | Created - Recurso creado |
+| 204 | No Content - Eliminado exitosamente |
 | 400 | Bad Request - Datos inválidos o faltantes |
 | 401 | Unauthorized - Credenciales inválidas o token expirado |
 | 403 | Forbidden - Sin permisos (ej. no es admin) |
 | 404 | Not Found - Recurso no encontrado |
 | 500 | Internal Server Error - Error del servidor |
 
-## Formato de Errores
+## Formato de Respuestas
 
+### Éxito
 ```json
 {
-  "error": "Mensaje descriptivo del error"
+  "data": { ... } | [ ... ],
+  "message": "Mensaje descriptivo"
+}
+```
+
+### Error
+```json
+{
+  "error": "Tipo de error",
+  "message": "Mensaje descriptivo del error"
 }
 ```
 
 Ejemplos:
-- `{"error": "Campos obligatorios: nombre, email, password."}` (400)
-- `{"error": "El email ya está registrado."}` (400)
-- `{"error": "Credenciales inválidas."}` (401)
-- `{"error": "Acceso denegado. Se requiere rol de administrador."}` (403)
-- `{"error": "Usuario no encontrado."}` (404)
+- `{"error": "Campos obligatorios faltantes", "message": "Faltan: nombre, precio"}` (400)
+- `{"error": "Producto no encontrado", "message": "No existe producto con id 999"}` (404)
+- `{"error": "Credenciales inválidas", "message": "Email o contraseña incorrectos"}` (401)
+- `{"error": "Acceso denegado", "message": "Se requiere rol de administrador"}` (403)
 
 ## Uso del Token JWT
 
