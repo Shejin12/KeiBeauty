@@ -107,6 +107,122 @@ class EmailService:
 
         return self._send(to_email, subject, html_body, text_body)
 
+    def enviar_confirmacion_pedido(self, to_email: str, nombre: str, pedido: dict) -> bool:
+        """Envía email de confirmación de pedido"""
+        subject = f'Confirmación de pedido #{pedido["id"]} - KeiBeauty'
+        
+        items_html = ''
+        for detalle in pedido.get('detalles', []):
+            producto = detalle.get('producto', {})
+            items_html += f'''
+            <tr>
+                <td style="padding: 12px; border-bottom: 1px solid #eee;">{producto.get('nombre', '')}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">{detalle.get('cantidad', 0)}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">{self._format_price(detalle.get('precio_unitario', 0))}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">{self._format_price(detalle.get('subtotal', 0))}</td>
+            </tr>
+            '''
+        
+        html_body = f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: linear-gradient(135deg, #e91e63 0%, #c2185b 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .content {{ background: white; padding: 30px; border: 1px solid #eee; border-top: none; border-radius: 0 0 8px 8px; }}
+                .order-info {{ background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+                .order-info-row {{ display: flex; justify-content: space-between; margin: 8px 0; }}
+                .order-info-label {{ color: #666; }}
+                .order-info-value {{ font-weight: 600; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
+                th {{ background: #f5f5f5; padding: 12px; text-align: left; border-bottom: 2px solid #e91e63; }}
+                td {{ padding: 12px; text-align: left; border-bottom: 1px solid #eee; }}
+                .total-row {{ font-weight: 700; font-size: 1.1rem; }}
+                .footer {{ text-align: center; color: #999; font-size: 0.85rem; margin-top: 30px; }}
+                .address-box {{ background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>KeiBeauty</h1>
+                    <p>¡Gracias por tu pedido!</p>
+                </div>
+                <div class="content">
+                    <h2>Hola {nombre},</h2>
+                    <p>Tu pedido <strong>#{pedido['id']}</strong> ha sido recibido y está siendo procesado.</p>
+                    
+                    <div class="order-info">
+                        <div class="order-info-row">
+                            <span class="order-info-label">Número de pedido:</span>
+                            <span class="order-info-value">#{pedido['id']}</span>
+                        </div>
+                        <div class="order-info-row">
+                            <span class="order-info-label">Fecha:</span>
+                            <span class="order-info-value">{pedido.get('fecha_pedido', '')[:10]}</span>
+                        </div>
+                        <div class="order-info-row">
+                            <span class="order-info-label">Estado:</span>
+                            <span class="order-info-value">{pedido.get('estado', 'pendiente').capitalize()}</span>
+                        </div>
+                    </div>
+                    
+                    <h3>Detalle del pedido</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Producto</th>
+                                <th style="text-align: center;">Cant.</th>
+                                <th style="text-align: right;">Precio</th>
+                                <th style="text-align: right;">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {items_html}
+                        </tbody>
+                    </table>
+                    
+                    <div class="order-info-row total-row" style="text-align: right; font-size: 1.2rem; margin-top: 15px;">
+                        <span>Total: </span>
+                        <span>{self._format_price(pedido.get('monto_total', 0))}</span>
+                    </div>
+                    
+                    <div class="address-box">
+                        <strong>Dirección de envío:</strong><br>
+                        {pedido.get('direccion_envio', '')}
+                    </div>
+                    
+                    <p>Te notificaremos cuando tu pedido sea enviado.</p>
+                </div>
+                <div class="footer">
+                    <p>&copy; 2024 KeiBeauty. Cuidado de la piel coreano.</p>
+                    <p>Si tienes preguntas, contáctanos en soporte@keibeauty.com</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        '''
+        
+        text_body = f'''
+        Hola {nombre},
+
+        Tu pedido #{pedido['id']} ha sido recibido.
+        Total: {self._format_price(pedido.get('monto_total', 0))}
+        Dirección: {pedido.get('direccion_envio', '')}
+        
+        Gracias por tu compra.
+        KeiBeauty
+        '''
+
+        return self._send(to_email, subject, html_body, text_body)
+    
+    def _format_price(self, price):
+        """Formatea precio en GTQ"""
+        return f'Q {float(price):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+
 
 # Instancia global
 email_service = EmailService()
