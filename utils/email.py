@@ -223,6 +223,64 @@ class EmailService:
         """Formatea precio en GTQ"""
         return f'Q {float(price):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
 
+    def enviar_codigo_2fa(self, to_email: str, codigo: str, minutos_validez: int = 5) -> bool:
+        """Envía email con código 2FA de 6 dígitos"""
+        subject = f'Tu código de acceso KeiBeauty: {codigo}'
+        
+        html_body = f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: linear-gradient(135deg, #e91e63 0%, #c2185b 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .content {{ background: white; padding: 30px; border: 1px solid #eee; border-top: none; border-radius: 0 0 8px 8px; }}
+                .code-box {{ background: #f5f5f5; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0; }}
+                .code {{ font-size: 2.5rem; font-weight: 700; letter-spacing: 0.5rem; color: #e91e63; font-family: monospace; }}
+                .footer {{ text-align: center; color: #999; font-size: 0.85rem; margin-top: 30px; }}
+                .warning {{ color: #c62828; font-size: 0.9rem; }}
+            </style>
+        </head>
+        <html>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>KeiBeauty</h1>
+                    <p>Código de verificación</p>
+                </div>
+                <div class="content">
+                    <h2>Tu código de acceso</h2>
+                    <p>Usa el siguiente código para iniciar sesión en KeiBeauty:</p>
+                    <div class="code-box">
+                        <span class="code">{codigo}</span>
+                    </div>
+                    <p class="warning"><strong>Importante:</strong> Este código expira en {minutos_validez} minutos y solo puede usarse una vez.</p>
+                    <p>Si no solicitaste esto, ignora este email. Tu cuenta está segura.</p>
+                </div>
+                <div class="footer">
+                    <p>&copy; 2024 KeiBeauty. Cuidado de la piel coreano.</p>
+                    <p>Si tienes problemas, contáctanos en soporte@keibeauty.com</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        '''
+
+        text_body = f'''
+        Tu código de acceso KeiBeauty es: {codigo}
+
+        Este código expira en {minutos_validez} minutos y solo puede usarse una vez.
+
+        Si no solicitaste esto, ignora este email.
+
+        ---
+        KeiBeauty - Cuidado de la piel coreano
+        '''
+
+        return self._send(to_email, subject, html_body, text_body)
+
 
 # Instancia global
 email_service = EmailService()

@@ -7,6 +7,7 @@ from models.carrito import Carrito, DetalleCarrito
 from models.pedido import Pedido, DetallePedido
 from models.resena import Resena
 from models.recuperacion_contrasena import RecuperacionContrasena
+from models.codigo_2fa import Codigo2FA
 
 __all__ = [
     'db',
@@ -19,5 +20,6 @@ __all__ = [
     'Pedido',
     'DetallePedido',
     'Resena',
-    'RecuperacionContrasena'
+    'RecuperacionContrasena',
+    'Codigo2FA'
 ]

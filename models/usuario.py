@@ -13,6 +13,7 @@ class Usuario(db.Model):
     telefono = db.Column(db.String(20), nullable=False)
     direccion_envio = db.Column(db.Text)
     rol = db.Column(db.String(20), default='cliente', nullable=False)
+    two_factor_enabled = db.Column(db.Boolean, default=False, nullable=False)
     fecha_registro = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     carrito = db.relationship('Carrito', back_populates='usuario', uselist=False, cascade='all, delete-orphan')
@@ -33,6 +34,7 @@ class Usuario(db.Model):
             'telefono': self.telefono,
             'direccion_envio': self.direccion_envio,
             'rol': self.rol,
+            'two_factor_enabled': self.two_factor_enabled,
             'fecha_registro': self.fecha_registro.isoformat() if self.fecha_registro else None
         }
 
