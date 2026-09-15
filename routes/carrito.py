@@ -1,14 +1,17 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
+from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
 from models import db, Carrito, DetalleCarrito, Producto
 
 carrito_bp = Blueprint('carrito', __name__, url_prefix='/api/carrito')
 
 
 def _get_user_id():
-    """Get user ID from JWT if available, otherwise None."""
+    """Get user ID from JWT if available, otherwise None. Rejects temporary 2FA tokens."""
     try:
         verify_jwt_in_request(optional=True)
+        claims = get_jwt()
+        if claims and claims.get('estado') == 'en_autenticacion':
+            return None
         user_id = get_jwt_identity()
         return int(user_id) if user_id else None
     except Exception:
