@@ -1,16 +1,19 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
+from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
 from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito
-from utils.decorators import admin_required
+from utils.decorators import admin_required, rechazar_en_autenticacion
 from utils.email import email_service
 
 pedidos_bp = Blueprint('pedidos', __name__, url_prefix='/api/pedidos')
 
 
 def get_usuario_id_opcional():
-    """Obtiene el usuario_id del JWT si existe, None si no hay token"""
+    """Obtiene el usuario_id del JWT si existe, None si no hay token. Rechaza tokens temporales 2FA."""
     try:
         verify_jwt_in_request(optional=True)
+        claims = get_jwt()
+        if claims and claims.get('estado') == 'en_autenticacion':
+            return None
         return get_jwt_identity()
     except:
         return None
@@ -213,6 +216,7 @@ def crear_pedido():
 
 @pedidos_bp.route('', methods=['GET'])
 @jwt_required()
+@rechazar_en_autenticacion
 def listar_pedidos():
     try:
         usuario_id = int(get_jwt_identity())
@@ -238,6 +242,7 @@ def listar_pedidos():
 
 @pedidos_bp.route('/<int:pedido_id>', methods=['GET'])
 @jwt_required()
+@rechazar_en_autenticacion
 def obtener_pedido(pedido_id):
     try:
         usuario_id = int(get_jwt_identity())

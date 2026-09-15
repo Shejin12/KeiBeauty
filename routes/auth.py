@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity, get_jwt
 from models import db, Usuario, RecuperacionContrasena, Codigo2FA
 from utils.email import email_service
+from utils.decorators import solo_en_autenticacion, rechazar_en_autenticacion
 from datetime import timedelta
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
@@ -82,10 +83,18 @@ def login():
             current_app.logger.error(f'Error enviando código 2FA: {e}')
             # No fallamos el login por error de email
 
+        # Generar JWT temporal con estado "en_autenticacion" (expira en 10 min)
+        token_temporal = create_access_token(
+            identity=str(usuario.id),
+            additional_claims={'estado': 'en_autenticacion', 'email': usuario.email},
+            expires_delta=timedelta(minutes=10)
+        )
+
         return jsonify({
             'data': {
                 'requiere_2fa': True,
-                'email': usuario.email
+                'email': usuario.email,
+                'token_temporal': token_temporal
             },
             'message': 'Código enviado a tu correo'
         }), 200
@@ -103,33 +112,41 @@ def login():
 
 
 @auth_bp.route('/verificar-2fa', methods=['POST'])
+@solo_en_autenticacion
 def verificar_2fa():
     data = request.get_json()
     if not data:
         return jsonify({'error': 'Datos JSON requeridos.'}), 400
 
-    email = data.get('email')
     codigo = data.get('codigo')
 
-    if not email or not codigo:
-        return jsonify({'error': 'Email y código son obligatorios.'}), 400
+    if not codigo:
+        return jsonify({'error': 'Código es obligatorio.'}), 400
 
-    usuario = Usuario.query.filter_by(email=email).first()
+    # Obtener usuario_id desde el JWT temporal
+    claims = get_jwt()
+    usuario_id = claims.get('sub')
+    email = claims.get('email')
+
+    if not usuario_id:
+        return jsonify({'error': 'Token inválido.'}), 400
+
+    usuario = db.session.get(Usuario, int(usuario_id))
 
     if not usuario:
-        return jsonify({'error': 'Usuario no encontrado.'}), 400
+        return jsonify({'error': 'Usuario no encontrado.'}), 404
 
     if not usuario.two_factor_enabled:
         return jsonify({'error': '2FA no está activado para este usuario.'}), 400
 
-    codigo_2fa, error = Codigo2FA.validar_codigo(usuario.id, codigo)
+    codigo_2fa, error = Codigo2FA.validar_codigo(int(usuario_id), codigo)
     if error:
         return jsonify({'error': error}), 400
 
     # Código válido, marcar como usado
     codigo_2fa.marcar_como_usado()
 
-    # Generar tokens
+    # Generar tokens reales
     access_token = create_access_token(identity=str(usuario.id))
     refresh_token = create_refresh_token(identity=str(usuario.id))
 
@@ -142,41 +159,46 @@ def verificar_2fa():
 
 
 @auth_bp.route('/reenviar-codigo-2fa', methods=['POST'])
+@solo_en_autenticacion
 def reenviar_codigo_2fa():
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': 'Datos JSON requeridos.'}), 400
+    # Obtener usuario_id desde el JWT temporal
+    claims = get_jwt()
+    usuario_id = claims.get('sub')
 
-    email = data.get('email')
-    if not email:
-        return jsonify({'error': 'Email es requerido.'}), 400
+    if not usuario_id:
+        return jsonify({'error': 'Token inválido.'}), 400
 
-    usuario = Usuario.query.filter_by(email=email).first()
+    usuario = db.session.get(Usuario, int(usuario_id))
 
-    # Siempre respondemos éxito por seguridad
-    if usuario and usuario.two_factor_enabled:
-        # Verificar rate limit: último código enviado hace menos de 60s
-        from models import Codigo2FA
-        from datetime import datetime, timedelta
-        from sqlalchemy import desc
+    if not usuario or not usuario.two_factor_enabled:
+        # Siempre respondemos éxito por seguridad
+        return jsonify({
+            'data': None,
+            'message': 'Código reenviado'
+        }), 200
+
+    # Verificar rate limit: último código enviado hace menos de 60s
+    from models import Codigo2FA
+    from datetime import datetime, timedelta
+    from sqlalchemy import desc
+    
+    ultimo_codigo = Codigo2FA.query.filter_by(usuario_id=usuario.id).order_by(desc(Codigo2FA.fecha_solicitud)).first()
+    
+    if ultimo_codigo and (datetime.utcnow() - ultimo_codigo.fecha_solicitud) < timedelta(seconds=60):
+        return jsonify({'error': 'Debes esperar 60 segundos antes de reenviar el código.'}), 429
+    
+    try:
+        ip = request.remote_addr
+        codigo, codigo_2fa = Codigo2FA.crear_codigo(usuario.id, ip=request.remote_addr)
         
-        ultimo_codigo = Codigo2FA.query.filter_by(usuario_id=usuario.id).order_by(desc(Codigo2FA.fecha_solicitud)).first()
-        
-        if ultimo_codigo and (datetime.utcnow() - ultimo_codigo.fecha_solicitud) < timedelta(seconds=60):
-            return jsonify({'error': 'Debes esperar 60 segundos antes de reenviar el código.'}), 429
-        
-        try:
-            ip = request.remote_addr
-            codigo, codigo_2fa = Codigo2FA.crear_codigo(usuario.id, ip=request.remote_addr)
-            
-            frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:5173')
-            email_service.enviar_codigo_2fa(
-                to_email=usuario.email,
-                codigo=codigo,
-                minutos_validez=5
-            )
-        except Exception as e:
-            current_app.logger.error(f'Error reenviando código 2FA: {e}')
+        frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:5173')
+        email_service.enviar_codigo_2fa(
+            to_email=usuario.email,
+            codigo=codigo,
+            minutos_validez=5
+        )
+    except Exception as e:
+        current_app.logger.error(f'Error reenviando código 2FA: {e}')
 
     return jsonify({
         'data': None,
@@ -186,6 +208,7 @@ def reenviar_codigo_2fa():
 
 @auth_bp.route('/activar-2fa', methods=['POST'])
 @jwt_required()
+@rechazar_en_autenticacion
 def activar_2fa():
     usuario_id = int(get_jwt_identity())
     usuario = db.session.get(Usuario, usuario_id)
@@ -204,6 +227,7 @@ def activar_2fa():
 
 @auth_bp.route('/desactivar-2fa', methods=['POST'])
 @jwt_required()
+@rechazar_en_autenticacion
 def desactivar_2fa():
     usuario_id = int(get_jwt_identity())
     usuario = db.session.get(Usuario, usuario_id)
@@ -227,6 +251,7 @@ def desactivar_2fa():
 
 @auth_bp.route('/perfil', methods=['GET'])
 @jwt_required()
+@rechazar_en_autenticacion
 def perfil():
     usuario_id = get_jwt_identity()
     usuario = db.session.get(Usuario, usuario_id)
@@ -239,6 +264,7 @@ def perfil():
 
 @auth_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
+@rechazar_en_autenticacion
 def refresh():
     usuario_id = get_jwt_identity()
     access_token = create_access_token(identity=usuario_id)
