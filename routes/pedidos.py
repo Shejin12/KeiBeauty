@@ -241,20 +241,48 @@ def listar_pedidos():
 
 
 @pedidos_bp.route('/<int:pedido_id>', methods=['GET'])
-@jwt_required()
+@jwt_required(optional=True)
 @rechazar_en_autenticacion
 def obtener_pedido(pedido_id):
     try:
-        usuario_id = int(get_jwt_identity())
-        usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, usuario_id)
+        # Verificar si hay usuario autenticado
+        verify_jwt_in_request(optional=True)
+        claims = get_jwt()
+        usuario_id = get_jwt_identity() if claims and claims.get('estado') != 'en_autenticacion' else None
+        usuario_id = int(usuario_id) if usuario_id else None
         
         pedido = db.session.get(Pedido, pedido_id)
         if not pedido:
             return jsonify({'error': 'Pedido no encontrado', 'message': f'No existe pedido con id {pedido_id}'}), 404
         
-        # Solo el dueño o admin puede ver el pedido
-        if pedido.usuario_id != usuario_id and not usuario.es_admin():
-            return jsonify({'error': 'Acceso denegado', 'message': 'No tienes permiso para ver este pedido'}), 403
+        # Si es pedido de usuario autenticado
+        if pedido.usuario_id is not None:
+            if usuario_id is None:
+                return jsonify({'error': 'Acceso denegado', 'message': 'Se requiere autenticación para ver este pedido'}), 401
+            
+            usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, usuario_id)
+            # Solo el dueño o admin puede ver el pedido
+            if pedido.usuario_id != usuario_id and not (usuario and usuario.rol == 'admin'):
+                return jsonify({'error': 'Acceso denegado', 'message': 'No tienes permiso para ver este pedido'}), 403
+        else:
+            # Es pedido de invitado - permitir acceso con guest_token o email_contacto
+            guest_token = request.headers.get('X-Guest-Token') or request.args.get('guest_token')
+            email_contacto = request.args.get('email_contacto')
+            
+            # Si no hay guest_token ni email, exigir autenticación
+            if not guest_token and not email_contacto:
+                return jsonify({'error': 'Acceso denegado', 'message': 'Se requiere token de invitado o email de contacto para ver este pedido'}), 401
+            
+            # Validar guest_token si se proporciona
+            if guest_token:
+                carrito = Carrito.query.filter_by(guest_token=guest_token).first()
+                if not carrito:
+                    return jsonify({'error': 'Acceso denegado', 'message': 'Token de invitado inválido'}), 403
+            
+            # Validar email si se proporciona
+            if email_contacto:
+                if pedido.email_contacto != email_contacto:
+                    return jsonify({'error': 'Acceso denegado', 'message': 'Email de contacto no coincide con el pedido'}), 403
         
         return jsonify({
             'data': pedido.to_dict(),
