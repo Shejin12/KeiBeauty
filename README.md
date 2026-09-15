@@ -607,6 +607,132 @@ Authorization: Bearer <access_token>
 }
 ```
 
+### Favoritos (`/api/favoritos`)
+
+| Método | Endpoint | Descripción | Autenticación |
+|--------|----------|-------------|---------------|
+| GET | `/` | Listar favoritos del usuario | JWT |
+| POST | `/<producto_id>` | Agregar producto a favoritos | JWT |
+| DELETE | `/<producto_id>` | Quitar producto de favoritos | JWT |
+
+#### GET /api/favoritos
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response (200):**
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "usuario_id": 1,
+      "producto_id": 5,
+      "fecha_agregado": "2026-09-15T10:30:00.000000",
+      "producto": {
+        "id": 5,
+        "nombre": "Low pH Good Morning Gel Cleanser",
+        "descripcion": "Limpiador gel suave...",
+        "precio": 14.90,
+        "stock": 50,
+        "imagen_url": "https://example.com/products/cosrx-cleanser.jpg",
+        "estado": "activo",
+        "marca_id": 1,
+        "categoria_id": 1,
+        "marca_nombre": "COSRX",
+        "categoria_nombre": "Limpieza"
+      }
+    }
+  ],
+  "message": "Favoritos obtenidos exitosamente."
+}
+```
+
+#### POST /api/favoritos/<producto_id>
+
+Agrega un producto a favoritos. Es idempotente: si el producto ya está en favoritos, devuelve 200 OK sin duplicar.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response (200):**
+```json
+{
+  "data": {
+    "id": 1,
+    "usuario_id": 1,
+    "producto_id": 5,
+    "fecha_agregado": "2026-09-15T10:30:00.000000",
+    "producto": { ... }
+  },
+  "message": "Producto añadido a favoritos"
+}
+```
+
+#### DELETE /api/favoritos/<producto_id>
+
+Quita un producto de favoritos.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response (204):**
+```json
+{
+  "data": null,
+  "message": "Producto quitado de favoritos"
+}
+```
+
+**Response (404):**
+```json
+{
+  "error": "No encontrado",
+  "message": "El producto no está en favoritos"
+}
+```
+
+### Parámetro opcional `con_favorito` en `/api/products`
+
+Al hacer `GET /api/products?con_favorito=1` con un usuario autenticado, cada producto en la respuesta incluirá un campo adicional `es_favorito: boolean` indicando si el producto está en los favoritos del usuario.
+
+**Ejemplo de respuesta:**
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "nombre": "Low pH Good Morning Gel Cleanser",
+      "precio": 14.90,
+      "stock": 50,
+      "es_favorito": true
+    }
+  ],
+  "message": "Productos obtenidos exitosamente."
+}
+```
+
+### Tabla BD: `producto_favorito`
+
+```sql
+CREATE TABLE producto_favorito (
+    id SERIAL PRIMARY KEY,
+    usuario_id INT REFERENCES usuarios(id) NOT NULL,
+    producto_id INT REFERENCES productos(id) NOT NULL,
+    fecha_agregado TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(usuario_id, producto_id)
+);
+
+CREATE INDEX ix_producto_favorito_usuario_id ON producto_favorito(usuario_id);
+CREATE INDEX ix_producto_favorito_producto_id ON producto_favorito(producto_id);
+```
+
 ## Códigos de Respuesta HTTP
 
 | Código | Descripción |
