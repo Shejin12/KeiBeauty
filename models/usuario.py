@@ -10,7 +10,7 @@ class Usuario(db.Model):
     nombre = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    telefono = db.Column(db.String(20))
+    telefono = db.Column(db.String(20), nullable=False)
     direccion_envio = db.Column(db.Text)
     rol = db.Column(db.String(20), default='cliente', nullable=False)
     fecha_registro = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
