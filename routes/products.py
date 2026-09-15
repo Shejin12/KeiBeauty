@@ -49,7 +49,7 @@ def get_product(product_id):
         return jsonify({'error': 'Error al obtener producto', 'message': str(e)}), 500
 
 
-@products_bp.route('/categorias', methods=['GET'])
+@products_bp.route('/categorias', methods=['GET', 'OPTIONS'])
 def get_categorias():
     try:
         categorias = Categoria.query.all()
