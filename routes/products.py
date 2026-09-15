@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from utils.decorators import admin_required
-from models import db, Producto, Marca, Categoria
+from models import db, Producto, Marca, Categoria, ProductoFavorito
 
 products_bp = Blueprint('products', __name__, url_prefix='/api/products')
 
@@ -12,6 +12,7 @@ def get_products():
         categoria = request.args.get('categoria', type=int)
         marca = request.args.get('marca', type=int)
         buscar = request.args.get('buscar', type=str)
+        con_favorito = request.args.get('con_favorito', type=int)
 
         query = Producto.query.filter_by(estado='activo')
 
@@ -23,7 +24,28 @@ def get_products():
             query = query.filter(Producto.nombre.ilike(f'%{buscar}%'))
 
         productos = query.order_by(Producto.fecha_creacion.desc()).all()
-        data = [p.to_dict() for p in productos]
+        
+        # Si se solicita con_favorito y hay usuario autenticado
+        favoritos_set = set()
+        if con_favorito == 1:
+            try:
+                verify_jwt_in_request(optional=True)
+                from flask_jwt_extended import get_jwt
+                claims = get_jwt()
+                if claims and claims.get('estado') != 'en_autenticacion':
+                    usuario_id = get_jwt_identity()
+                    if usuario_id:
+                        favoritos = ProductoFavorito.query.filter_by(usuario_id=int(usuario_id)).all()
+                        favoritos_set = {f.producto_id for f in favoritos}
+            except:
+                pass
+        
+        data = []
+        for p in productos:
+            producto_dict = p.to_dict()
+            if con_favorito == 1:
+                producto_dict['es_favorito'] = p.id in favoritos_set
+            data.append(producto_dict)
 
         return jsonify({
             'data': data,
