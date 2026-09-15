@@ -20,8 +20,8 @@ def registro():
     telefono = data.get('telefono')
     direccion_envio = data.get('direccion_envio')
 
-    if not nombre or not email or not password:
-        return jsonify({'error': 'Campos obligatorios: nombre, email, password.'}), 400
+    if not nombre or not email or not password or not direccion_envio:
+        return jsonify({'error': 'Campos obligatorios: nombre, email, password, direccion_envio.'}), 400
 
     if Usuario.query.filter_by(email=email).first():
         return jsonify({'error': 'El email ya está registrado.'}), 400
