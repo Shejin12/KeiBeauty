@@ -1,38 +1,95 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from models import db, Carrito, DetalleCarrito, Producto
 
 carrito_bp = Blueprint('carrito', __name__, url_prefix='/api/carrito')
 
 
-def _get_or_create_carrito(usuario_id):
-    carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
-    if not carrito:
-        carrito = Carrito(usuario_id=usuario_id)
-        db.session.add(carrito)
-        db.session.commit()
-    return carrito
+def _get_user_id():
+    """Get user ID from JWT if available, otherwise None."""
+    try:
+        verify_jwt_in_request(optional=True)
+        user_id = get_jwt_identity()
+        return int(user_id) if user_id else None
+    except Exception:
+        return None
+
+
+def _get_guest_token():
+    """Get guest token from request headers or query params."""
+    return request.headers.get('X-Guest-Token') or request.args.get('guest_token')
+
+
+def _get_or_create_carrito(usuario_id=None, guest_token=None):
+    """Get or create cart for user or guest."""
+    if usuario_id:
+        carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        if not carrito:
+            carrito = Carrito(usuario_id=usuario_id)
+            db.session.add(carrito)
+            db.session.commit()
+        return carrito
+    
+    if guest_token:
+        carrito = Carrito.query.filter_by(guest_token=guest_token).first()
+        if not carrito:
+            carrito = Carrito(guest_token=guest_token)
+            db.session.add(carrito)
+            db.session.commit()
+        return carrito
+    
+    # Create new guest cart
+    new_token = Carrito.generar_guest_token()
+    carrito = Carrito(guest_token=new_token)
+    db.session.add(carrito)
+    db.session.commit()
+    return carrito, new_token
 
 
 @carrito_bp.route('', methods=['GET'])
-@jwt_required()
 def get_carrito():
     try:
-        usuario_id = int(get_jwt_identity())
-        carrito = _get_or_create_carrito(usuario_id)
+        usuario_id = _get_user_id()
+        guest_token = _get_guest_token()
+        
+        if usuario_id:
+            carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+            if not carrito:
+                return jsonify({
+                    'data': {'id': None, 'usuario_id': usuario_id, 'guest_token': None, 'detalles': []},
+                    'message': 'Carrito vacío.'
+                }), 200
+            return jsonify({
+                'data': carrito.to_dict(),
+                'message': 'Carrito obtenido exitosamente.'
+            }), 200
+        
+        if guest_token:
+            carrito = Carrito.query.filter_by(guest_token=guest_token).first()
+            if not carrito:
+                return jsonify({
+                    'data': {'id': None, 'usuario_id': None, 'guest_token': guest_token, 'detalles': []},
+                    'message': 'Carrito vacío.'
+                }), 200
+            return jsonify({
+                'data': carrito.to_dict(),
+                'message': 'Carrito obtenido exitosamente.'
+            }), 200
+        
+        # No user, no guest token - return empty cart
         return jsonify({
-            'data': carrito.to_dict(),
-            'message': 'Carrito obtenido exitosamente.'
+            'data': {'id': None, 'usuario_id': None, 'guest_token': None, 'detalles': []},
+            'message': 'Carrito vacío.'
         }), 200
     except Exception as e:
         return jsonify({'error': 'Error al obtener carrito', 'message': str(e)}), 500
 
 
 @carrito_bp.route('/items', methods=['POST'])
-@jwt_required()
 def add_item():
     try:
-        usuario_id = int(get_jwt_identity())
+        usuario_id = _get_user_id()
+        guest_token = _get_guest_token()
         data = request.get_json()
         
         if not data:
@@ -62,7 +119,15 @@ def add_item():
         if cantidad > producto.stock:
             return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades disponibles'}), 400
         
-        carrito = _get_or_create_carrito(usuario_id)
+        if usuario_id:
+            carrito = _get_or_create_carrito(usuario_id=usuario_id)
+        else:
+            result = _get_or_create_carrito(guest_token=guest_token)
+            if isinstance(result, tuple):
+                carrito, guest_token = result
+            else:
+                carrito = result
+                guest_token = _get_guest_token()
         
         # Verificar si el item ya existe en el carrito
         detalle_existente = DetalleCarrito.query.filter_by(
@@ -87,11 +152,17 @@ def add_item():
         db.session.commit()
         
         # Recargar carrito actualizado
-        carrito = _get_or_create_carrito(usuario_id)
+        if usuario_id:
+            carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        else:
+            carrito = Carrito.query.filter_by(guest_token=guest_token).first()
+        
+        response_data = carrito.to_dict()
         
         return jsonify({
-            'data': carrito.to_dict(),
-            'message': 'Producto añadido al carrito.'
+            'data': response_data,
+            'message': 'Producto añadido al carrito.',
+            'guest_token': guest_token
         }), 201
         
     except Exception as e:
@@ -100,10 +171,11 @@ def add_item():
 
 
 @carrito_bp.route('/items/<int:item_id>', methods=['PUT'])
-@jwt_required()
+@jwt_required(optional=True)
 def update_item(item_id):
     try:
-        usuario_id = int(get_jwt_identity())
+        usuario_id = _get_user_id()
+        guest_token = _get_guest_token()
         data = request.get_json()
         
         if not data:
@@ -121,9 +193,13 @@ def update_item(item_id):
         if cantidad < 1:
             return jsonify({'error': 'Cantidad inválida', 'message': 'La cantidad debe ser al menos 1'}), 400
         
-        carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        if usuario_id:
+            carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        else:
+            carrito = Carrito.query.filter_by(guest_token=guest_token).first()
+        
         if not carrito:
-            return jsonify({'error': 'Carrito no encontrado', 'message': 'No existe carrito para este usuario'}), 404
+            return jsonify({'error': 'Carrito no encontrado', 'message': 'No existe carrito'}), 404
         
         detalle = DetalleCarrito.query.filter_by(id=item_id, carrito_id=carrito.id).first()
         if not detalle:
@@ -136,7 +212,10 @@ def update_item(item_id):
         carrito.fecha_actualizacion = db.func.now()
         db.session.commit()
         
-        carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        if usuario_id:
+            carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        else:
+            carrito = Carrito.query.filter_by(guest_token=guest_token).first()
         
         return jsonify({
             'data': carrito.to_dict(),
@@ -149,12 +228,17 @@ def update_item(item_id):
 
 
 @carrito_bp.route('/items/<int:item_id>', methods=['DELETE'])
-@jwt_required()
+@jwt_required(optional=True)
 def remove_item(item_id):
     try:
-        usuario_id = int(get_jwt_identity())
+        usuario_id = _get_user_id()
+        guest_token = _get_guest_token()
         
-        carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        if usuario_id:
+            carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        else:
+            carrito = Carrito.query.filter_by(guest_token=guest_token).first()
+        
         if not carrito:
             return jsonify({'error': 'Carrito no encontrado', 'message': 'No existe carrito para este usuario'}), 404
         
@@ -166,7 +250,10 @@ def remove_item(item_id):
         carrito.fecha_actualizacion = db.func.now()
         db.session.commit()
         
-        carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        if usuario_id:
+            carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        else:
+            carrito = Carrito.query.filter_by(guest_token=guest_token).first()
         
         return jsonify({
             'data': carrito.to_dict(),
@@ -179,12 +266,17 @@ def remove_item(item_id):
 
 
 @carrito_bp.route('', methods=['DELETE'])
-@jwt_required()
+@jwt_required(optional=True)
 def clear_carrito():
     try:
-        usuario_id = int(get_jwt_identity())
+        usuario_id = _get_user_id()
+        guest_token = _get_guest_token()
         
-        carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        if usuario_id:
+            carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
+        else:
+            carrito = Carrito.query.filter_by(guest_token=guest_token).first()
+        
         if not carrito:
             return jsonify({'data': None, 'message': 'Carrito ya está vacío.'}), 200
         

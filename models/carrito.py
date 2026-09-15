@@ -1,22 +1,29 @@
 from models.db import db
 from datetime import datetime
+import secrets
 
 
 class Carrito(db.Model):
     __tablename__ = 'carritos'
 
     id = db.Column(db.Integer, primary_key=True)
-    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), unique=True, nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), unique=True, nullable=True)
+    guest_token = db.Column(db.String(64), unique=True, nullable=True, index=True)
     fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     fecha_actualizacion = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     usuario = db.relationship('Usuario', back_populates='carrito')
     detalles = db.relationship('DetalleCarrito', back_populates='carrito', cascade='all, delete-orphan')
 
+    @classmethod
+    def generar_guest_token(cls):
+        return secrets.token_urlsafe(32)
+
     def to_dict(self):
         return {
             'id': self.id,
             'usuario_id': self.usuario_id,
+            'guest_token': self.guest_token,
             'fecha_creacion': self.fecha_creacion.isoformat() if self.fecha_creacion else None,
             'fecha_actualizacion': self.fecha_actualizacion.isoformat() if self.fecha_actualizacion else None,
             'detalles': [d.to_dict() for d in self.detalles]
@@ -26,7 +33,7 @@ class Carrito(db.Model):
         return sum(d.subtotal for d in self.detalles)
 
     def __repr__(self):
-        return f'<Carrito usuario_id={self.usuario_id}>'
+        return f'<Carrito usuario_id={self.usuario_id} guest_token={self.guest_token}>'
 
 
 class DetalleCarrito(db.Model):

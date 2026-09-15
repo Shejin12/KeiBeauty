@@ -49,6 +49,19 @@ def get_product(product_id):
         return jsonify({'error': 'Error al obtener producto', 'message': str(e)}), 500
 
 
+@products_bp.route('/categorias', methods=['GET'])
+def get_categorias():
+    try:
+        categorias = Categoria.query.all()
+        data = [{'id': c.id, 'nombre': c.nombre} for c in categorias]
+        return jsonify({
+            'data': data,
+            'message': 'Categorías obtenidas exitosamente.'
+        }), 200
+    except Exception as e:
+        return jsonify({'error': 'Error al obtener categorías', 'message': str(e)}), 500
+
+
 @products_bp.route('', methods=['POST'])
 @jwt_required()
 @admin_required

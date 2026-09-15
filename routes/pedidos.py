@@ -16,6 +16,11 @@ def get_usuario_id_opcional():
         return None
 
 
+def get_guest_token():
+    """Obtiene el guest token del header"""
+    return request.headers.get('X-Guest-Token') or request.args.get('guest_token')
+
+
 @pedidos_bp.route('', methods=['POST'])
 def crear_pedido():
     try:
@@ -23,6 +28,7 @@ def crear_pedido():
         usuario_id = get_usuario_id_opcional()
         es_invitado = usuario_id is None
         usuario_id = int(usuario_id) if usuario_id else None
+        guest_token = get_guest_token()
         
         data = request.get_json()
         
@@ -61,38 +67,64 @@ def crear_pedido():
         # Obtener items del pedido
         items_pedido = []
         monto_total = 0
+        carrito = None
         
         if es_invitado:
-            # Para invitados, los items vienen en el body
-            items_data = data.get('items', [])
-            if not items_data or len(items_data) == 0:
-                return jsonify({'error': 'Carrito vacío', 'message': 'Debe proporcionar al menos un producto'}), 400
+            # Para invitados, obtener items del carrito de invitado
+            if guest_token:
+                carrito = Carrito.query.filter_by(guest_token=guest_token).first()
             
-            for item_data in items_data:
-                producto_id = item_data.get('producto_id')
-                cantidad = item_data.get('cantidad', 1)
+            if not carrito or not carrito.detalles:
+                # Fallback: items en el body (compatibilidad)
+                items_data = data.get('items', [])
+                if not items_data or len(items_data) == 0:
+                    return jsonify({'error': 'Carrito vacío', 'message': 'No hay productos en el carrito'}), 400
                 
-                if not producto_id:
-                    return jsonify({'error': 'Producto requerido', 'message': 'Cada item debe tener producto_id'}), 400
-                
-                producto = db.session.get(Producto, producto_id)
-                if not producto or producto.estado != 'activo':
-                    return jsonify({'error': 'Producto no disponible', 'message': f'El producto {producto_id} no está disponible'}), 400
-                
-                if cantidad > producto.stock:
-                    return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
-                
-                precio_unitario = float(producto.precio)
-                subtotal = precio_unitario * cantidad
-                monto_total += subtotal
-                
-                items_pedido.append({
-                    'producto_id': producto.id,
-                    'precio_unitario': precio_unitario,
-                    'cantidad': cantidad,
-                    'subtotal': subtotal,
-                    'nombre_producto': producto.nombre
-                })
+                for item_data in items_data:
+                    producto_id = item_data.get('producto_id')
+                    cantidad = item_data.get('cantidad', 1)
+                    
+                    if not producto_id:
+                        return jsonify({'error': 'Producto requerido', 'message': 'Cada item debe tener producto_id'}), 400
+                    
+                    producto = db.session.get(Producto, producto_id)
+                    if not producto or producto.estado != 'activo':
+                        return jsonify({'error': 'Producto no disponible', 'message': f'El producto {producto_id} no está disponible'}), 400
+                    
+                    if cantidad > producto.stock:
+                        return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
+                    
+                    precio_unitario = float(producto.precio)
+                    subtotal = precio_unitario * cantidad
+                    monto_total += subtotal
+                    
+                    items_pedido.append({
+                        'producto_id': producto.id,
+                        'precio_unitario': precio_unitario,
+                        'cantidad': cantidad,
+                        'subtotal': subtotal,
+                        'nombre_producto': producto.nombre
+                    })
+            else:
+                # Usar items del carrito de invitado
+                for detalle_carrito in carrito.detalles:
+                    producto = detalle_carrito.producto
+                    if not producto or producto.estado != 'activo':
+                        return jsonify({'error': 'Producto no disponible', 'message': f'El producto {detalle_carrito.producto_id} ya no está disponible'}), 400
+                    
+                    if detalle_carrito.cantidad > producto.stock:
+                        return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
+                    
+                    subtotal = float(producto.precio) * detalle_carrito.cantidad
+                    monto_total += subtotal
+                    
+                    items_pedido.append({
+                        'producto_id': producto.id,
+                        'precio_unitario': float(producto.precio),
+                        'cantidad': detalle_carrito.cantidad,
+                        'subtotal': subtotal,
+                        'nombre_producto': producto.nombre
+                    })
         else:
             # Usuario autenticado: usar carrito
             carrito = Carrito.query.filter_by(usuario_id=usuario_id).first()
@@ -148,6 +180,10 @@ def crear_pedido():
             
             # Si es usuario autenticado, vaciar carrito
             if not es_invitado and carrito:
+                DetalleCarrito.query.filter_by(carrito_id=carrito.id).delete()
+                carrito.fecha_actualizacion = db.func.now()
+            # Si es invitado, vaciar carrito de invitado
+            elif es_invitado and carrito:
                 DetalleCarrito.query.filter_by(carrito_id=carrito.id).delete()
                 carrito.fecha_actualizacion = db.func.now()
             
