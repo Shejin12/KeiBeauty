@@ -29,7 +29,10 @@ def create_app(config_name=None):
     else:
         origins = cors_origins
     
-    CORS(app, origins=origins, supports_credentials=True, allow_headers=['Content-Type', 'Authorization'], methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+    CORS(app, origins=origins, supports_credentials=True, 
+         allow_headers=['Content-Type', 'Authorization', 'X-Guest-Token'], 
+         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+         expose_headers=['Content-Type', 'Authorization'])
 
     init_db(app)
     migrate.init_app(app, db)
