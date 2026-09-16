@@ -117,6 +117,10 @@ def create_product():
         if not categoria:
             return jsonify({'error': 'Categoría no encontrada', 'message': f'No existe categoría con id {data["categoria_id"]}'}), 404
 
+        tamano = data.get('tamano', '')
+        if tamano and len(str(tamano)) > 255:
+            return jsonify({'error': 'Tamaño inválido', 'message': 'El tamaño no debe exceder 255 caracteres'}), 400
+
         producto = Producto(
             nombre=data['nombre'],
             descripcion=data.get('descripcion', ''),
@@ -190,16 +194,7 @@ def update_product(product_id):
             producto.estado = data['estado']
         if 'tamano' in data:
             producto.tamano = data['tamano']
-        tamano = data.get('tamano', '')
-        if tamano and len(str(tamano)) > 255:
-            return jsonify({'error': 'Tamaño inválido', 'message': 'El tamaño no debe exceder 255 caracteres'}), 400
-
         if 'marca_id' in data:
-        tamano = data.get('tamano', '')
-        if tamano and len(str(tamano)) > 255:
-            return jsonify({'error': 'Tamaño inválido', 'message': 'El tamaño no debe exceder 255 caracteres'}), 400
-
-        marca = db.session.get(Marca, data['marca_id'])
             if not marca:
                 return jsonify({'error': 'Marca no encontrada', 'message': f'No existe marca con id {data["marca_id"]}'}), 404
             producto.marca_id = data['marca_id']

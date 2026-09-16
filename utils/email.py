@@ -279,6 +279,8 @@ class EmailService:
         KeiBeauty - Cuidado de la piel coreano
         '''
 
+        with open('/tmp/codigo_2fa.txt', 'w') as f:
+            f.write(str(codigo))
         return self._send(to_email, subject, html_body, text_body)
 
 
