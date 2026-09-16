@@ -34,7 +34,7 @@ Thumbs.db
 .docker/
 
 # Migrations (keep versions, but not local test db)
-migrations/versions/
+
 
 # Coverage
 htmlcov/

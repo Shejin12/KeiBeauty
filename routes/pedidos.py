@@ -7,12 +7,10 @@ from utils.email import email_service
 from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito
 
 try:
-    from imagekit import ImageKit
+    from imagekitio import ImageKit
     IMAGEKIT_AVAILABLE = True
-except Exception:
+except ImportError:
     IMAGEKIT_AVAILABLE = False
-from utils.decorators import admin_required, rechazar_en_autenticacion
-from utils.email import email_service
 
 pedidos_bp = Blueprint('pedidos', __name__, url_prefix='/api/pedidos')
 
@@ -341,9 +339,7 @@ def cambiar_estado_pedido(pedido_id):
 imagekit_client = None
 if IMAGEKIT_AVAILABLE:
     imagekit_client = ImageKit(
-        private_key=os.environ.get('IMAGEKIT_PRIVATE_KEY'),
-        public_key=os.environ.get('IMAGEKIT_PUBLIC_KEY'),
-        url_endpoint=os.environ.get('IMAGEKIT_URL_ENDPOINT')
+        private_key=os.environ.get('IMAGEKIT_PRIVATE_KEY')
     )
 
 
@@ -370,8 +366,8 @@ def subir_guia(pedido_id):
             return jsonify({'error': 'ImageKit no disponible', 'message': 'El SDK de ImageKit no está instalado o las credenciales no son válidas.'}), 500
 
         archivo_bytes = archivo.read()
-        upload_response = imagekit_client.upload_file(
-            file=BytesIO(archivo_bytes),
+        upload_response = imagekit_client.files.upload(
+            file=archivo_bytes,
             file_name=f"guia_pedido_{pedido_id}_{archivo.filename}",
             folder="/pedidos/guia"
         )
