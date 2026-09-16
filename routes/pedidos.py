@@ -1,8 +1,16 @@
 import os
-from flask import Blueprint, request, jsonify, Flask
+from io import BytesIO
+from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
-from imagekit import ImageKit
+from utils.decorators import admin_required, rechazar_en_autenticacion
+from utils.email import email_service
 from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito
+
+try:
+    from imagekit import ImageKit
+    IMAGEKIT_AVAILABLE = True
+except Exception:
+    IMAGEKIT_AVAILABLE = False
 from utils.decorators import admin_required, rechazar_en_autenticacion
 from utils.email import email_service
 
@@ -329,13 +337,14 @@ def cambiar_estado_pedido(pedido_id):
         return jsonify({'error': 'Error al actualizar estado', 'message': str(e)}), 500
 
 
-# Configurar cliente ImageKit
-from io import BytesIO
-imagekit_client = ImageKit(
-    private_key=os.environ.get('IMAGEKIT_PRIVATE_KEY'),
-    public_key=os.environ.get('IMAGEKIT_PUBLIC_KEY'),
-    url_endpoint=os.environ.get('IMAGEKIT_URL_ENDPOINT')
-)
+# Configurar cliente ImageKit (opcional)
+imagekit_client = None
+if IMAGEKIT_AVAILABLE:
+    imagekit_client = ImageKit(
+        private_key=os.environ.get('IMAGEKIT_PRIVATE_KEY'),
+        public_key=os.environ.get('IMAGEKIT_PUBLIC_KEY'),
+        url_endpoint=os.environ.get('IMAGEKIT_URL_ENDPOINT')
+    )
 
 
 @pedidos_bp.route('/<int:pedido_id>/guia', methods=['PUT', 'POST'])
@@ -357,6 +366,9 @@ def subir_guia(pedido_id):
             return jsonify({'error': 'Tipo de archivo no soportado', 'message': f'Tipos permitidos: {", ".join(tipos_permitidos)}'}), 400
 
         # Subir archivo a ImageKit
+        if not IMAGEKIT_AVAILABLE or imagekit_client is None:
+            return jsonify({'error': 'ImageKit no disponible', 'message': 'El SDK de ImageKit no está instalado o las credenciales no son válidas.'}), 500
+
         archivo_bytes = archivo.read()
         upload_response = imagekit_client.upload_file(
             file=BytesIO(archivo_bytes),
