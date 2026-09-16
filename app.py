@@ -31,7 +31,7 @@ def create_app(config_name=None):
     
     CORS(app, origins=origins, supports_credentials=True, 
          allow_headers=['Content-Type', 'Authorization', 'X-Guest-Token'], 
-         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+         methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
          expose_headers=['Content-Type', 'Authorization'])
 
     init_db(app)
