@@ -228,10 +228,21 @@ def crear_pedido():
 def listar_pedidos():
     try:
         usuario_id = int(get_jwt_identity())
+        usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, usuario_id)
+        es_admin = usuario and usuario.rol == 'admin'
+        
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         
-        query = Pedido.query.filter_by(usuario_id=usuario_id).order_by(Pedido.fecha_pedido.desc())
+        if es_admin:
+            query = Pedido.query.order_by(Pedido.fecha_pedido.desc())
+        else:
+            query = Pedido.query.filter_by(usuario_id=usuario_id).order_by(Pedido.fecha_pedido.desc())
+        
+        estado_filtro = request.args.get('estado')
+        if estado_filtro:
+            query = query.filter(Pedido.estado == estado_filtro)
+        
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         
         return jsonify({
