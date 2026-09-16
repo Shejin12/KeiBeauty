@@ -1,5 +1,7 @@
+import os
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
+from imagekitio import ImageKit
 from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito
 from utils.decorators import admin_required, rechazar_en_autenticacion
 from utils.email import email_service
@@ -325,3 +327,50 @@ def cambiar_estado_pedido(pedido_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Error al actualizar estado', 'message': str(e)}), 500
+
+
+# Configurar cliente ImageKit
+imagekit_client = ImageKit(
+    private_key=os.environ.get('IMAGEKIT_PRIVATE_KEY'),
+    public_key=os.environ.get('IMAGEKIT_PUBLIC_KEY'),
+    url_endpoint=os.environ.get('IMAGEKIT_URL_ENDPOINT')
+)
+
+
+@pedidos_bp.route('/<int:pedido_id>/guia', methods=['PUT', 'POST'])
+@jwt_required()
+@admin_required
+def subir_guia(pedido_id):
+    try:
+        pedido = db.session.get(Pedido, pedido_id)
+        if not pedido:
+            return jsonify({'error': 'Pedido no encontrado', 'message': f'No existe pedido con id {pedido_id}'}), 404
+
+        archivo = request.files.get('archivo')
+        if not archivo:
+            return jsonify({'error': 'Archivo requerido', 'message': 'Se debe enviar un archivo con el campo "archivo"'}), 400
+
+        # Validar tipo de archivo (solo imágenes)
+        tipos_permitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+        if archivo.content_type not in tipos_permitidos:
+            return jsonify({'error': 'Tipo de archivo no soportado', 'message': f'Tipos permitidos: {", ".join(tipos_permitidos)}'}), 400
+
+        # Subir archivo a ImageKit
+        upload_response = imagekit_client.upload(
+            file=archivo.read(),
+            file_name=f"guia_pedido_{pedido_id}_{archivo.filename}",
+            folder="/pedidos/guia"
+        )
+
+        pedido.url_guia = upload_response.url
+        pedido.fecha_actualizacion = db.func.now()
+        db.session.commit()
+
+        return jsonify({
+            'data': pedido.to_dict(),
+            'message': 'Imagen de guía subida exitosamente.'
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al subir imagen de guía', 'message': str(e)}), 500

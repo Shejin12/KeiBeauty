@@ -14,6 +14,7 @@ class Pedido(db.Model):
     telefono_contacto = db.Column(db.String(20), nullable=True)
     fecha_pedido = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     fecha_actualizacion = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    url_guia = db.Column(db.String(500), nullable=True)
 
     usuario = db.relationship('Usuario', back_populates='pedidos')
     detalles = db.relationship('DetallePedido', back_populates='pedido', cascade='all, delete-orphan')
@@ -29,6 +30,7 @@ class Pedido(db.Model):
             'telefono_contacto': self.telefono_contacto,
             'fecha_pedido': self.fecha_pedido.isoformat() if self.fecha_pedido else None,
             'fecha_actualizacion': self.fecha_actualizacion.isoformat() if self.fecha_actualizacion else None,
+            'url_guia': self.url_guia,
             'detalles': [d.to_dict() for d in self.detalles]
         }
 
