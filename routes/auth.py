@@ -66,48 +66,35 @@ def login():
     if not usuario or not usuario.check_password(password):
         return jsonify({'error': 'Credenciales inválidas.'}), 401
 
-    # Verificar si tiene 2FA activado
-    if usuario.two_factor_enabled:
-        # Generar código 2FA
-        try:
-            ip = request.remote_addr
-            codigo, codigo_2fa = Codigo2FA.crear_codigo(usuario.id, ip=ip)
-            
-            frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:5173')
-            email_service.enviar_codigo_2fa(
-                to_email=usuario.email,
-                codigo=codigo,
-                minutos_validez=5
-            )
-        except Exception as e:
-            current_app.logger.error(f'Error enviando código 2FA: {e}')
-            # No fallamos el login por error de email
-
-        # Generar JWT temporal con estado "en_autenticacion" (expira en 10 min)
-        token_temporal = create_access_token(
-            identity=str(usuario.id),
-            additional_claims={'estado': 'en_autenticacion', 'email': usuario.email},
-            expires_delta=timedelta(minutes=10)
+    # 2FA obligatorio para todos los usuarios
+    try:
+        ip = request.remote_addr
+        codigo, codigo_2fa = Codigo2FA.crear_codigo(usuario.id, ip=ip)
+        
+        frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:5173')
+        email_service.enviar_codigo_2fa(
+            to_email=usuario.email,
+            codigo=codigo,
+            minutos_validez=5
         )
+    except Exception as e:
+        current_app.logger.error(f'Error enviando código 2FA: {e}')
+        # No fallamos el login por error de email
 
-        return jsonify({
-            'data': {
-                'requiere_2fa': True,
-                'email': usuario.email,
-                'token_temporal': token_temporal
-            },
-            'message': 'Código enviado a tu correo'
-        }), 200
-
-    # Sin 2FA, login normal
-    access_token = create_access_token(identity=str(usuario.id))
-    refresh_token = create_refresh_token(identity=str(usuario.id))
+    # Generar JWT temporal con estado "en_autenticacion" (expira en 10 min)
+    token_temporal = create_access_token(
+        identity=str(usuario.id),
+        additional_claims={'estado': 'en_autenticacion', 'email': usuario.email},
+        expires_delta=timedelta(minutes=10)
+    )
 
     return jsonify({
-        'mensaje': 'Login exitoso.',
-        'usuario': usuario.to_dict(),
-        'access_token': access_token,
-        'refresh_token': refresh_token
+        'data': {
+            'requiere_2fa': True,
+            'email': usuario.email,
+            'token_temporal': token_temporal
+        },
+        'message': 'Código enviado a tu correo'
     }), 200
 
 
