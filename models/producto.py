@@ -32,7 +32,7 @@ class Producto(db.Model):
             'descripcion': self.descripcion,
             'ingredientes_clave': self.ingredientes_clave,
             'tipo_piel': self.tipo_piel,
-            'tamano': self.tamano,
+            'tamano': self.tamano or '',
             'precio': float(self.precio),
             'stock': self.stock,
             'imagen_url': self.imagen_url,
