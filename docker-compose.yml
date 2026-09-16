@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
@@ -29,6 +27,11 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/keibeauty_db
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173}
+      IMAGEKIT_PRIVATE_KEY: ${IMAGEKIT_PRIVATE_KEY}
+      IMAGEKIT_PUBLIC_KEY: ${IMAGEKIT_PUBLIC_KEY}
+      IMAGEKIT_URL_ENDPOINT: ${IMAGEKIT_URL_ENDPOINT}
+    env_file:
+      - .env
     ports:
       - "5000:5000"
     depends_on:
