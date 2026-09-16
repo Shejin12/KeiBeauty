@@ -26,17 +26,17 @@ def seed_data():
             Marca(
                 nombre='COSRX',
                 descripcion='Marca coreana famosa por sus productos con centella asiatica y acido hialuronico.',
-                logo_url='https://example.com/logos/cosrx.png'
+                logo_url='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSpq4itFNV14WFJeuWpB3k11mUZ6ZRcLSlFGtHgb6A97w&s'
             ),
             Marca(
                 nombre='Beauty of Joseon',
                 descripcion='Marca inspirada en la belleza tradicional coreana (hanbang) con ingredientes como ginseng y arroz.',
-                logo_url='https://example.com/logos/beauty-of-joseon.png'
+                logo_url='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSpq4itFNV14WFJeuWpB3k11mUZ6ZRcLSlFGtHgb6A97w&s'
             ),
             Marca(
                 nombre='Some By Mi',
                 descripcion='Marca coreana especializada en productos para piel sensible y con tendencia acneica.',
-                logo_url='https://example.com/logos/some-by-mi.png'
+                logo_url='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSpq4itFNV14WFJeuWpB3k11mUZ6ZRcLSlFGtHgb6A97w&s'
             )
         ]
         db.session.add_all(marcas)
@@ -67,7 +67,7 @@ def seed_data():
                 tipo_piel='Mixta, grasa, sensible',
                 precio=14.90,
                 stock=50,
-                imagen_url='https://example.com/products/cosrx-cleanser.jpg',
+                imagen_url='https://i.pinimg.com/736x/aa/0c/da/aa0cdacd84f6bd2e197a0ad37adb088c.jpg',
                 estado='activo',
                 marca_id=marcas[0].id,
                 categoria_id=categorias[0].id
@@ -79,7 +79,7 @@ def seed_data():
                 tipo_piel='Todo tipo de piel',
                 precio=22.50,
                 stock=40,
-                imagen_url='https://example.com/products/cosrx-snail-essence.jpg',
+                imagen_url='https://i.pinimg.com/236x/76/e8/53/76e853ec56d94bb2c658298a08103c49.jpg',
                 estado='activo',
                 marca_id=marcas[0].id,
                 categoria_id=categorias[2].id
@@ -91,7 +91,7 @@ def seed_data():
                 tipo_piel='Seca, normal, madura',
                 precio=28.00,
                 stock=30,
-                imagen_url='https://example.com/products/boj-dynasty-cream.jpg',
+                imagen_url='https://i1.sndcdn.com/artworks-V5z7Q4BedhgO8DQ5-eAXCNQ-t500x500.png',
                 estado='activo',
                 marca_id=marcas[1].id,
                 categoria_id=categorias[1].id
@@ -103,7 +103,7 @@ def seed_data():
                 tipo_piel='Mixta, grasa, con manchas',
                 precio=19.90,
                 stock=35,
-                imagen_url='https://example.com/products/boj-glow-serum.jpg',
+                imagen_url='https://i.pinimg.com/originals/7f/b5/13/7fb5138b4ba0a1520e6edae5f74ca923.jpg',
                 estado='activo',
                 marca_id=marcas[1].id,
                 categoria_id=categorias[2].id
@@ -115,7 +115,7 @@ def seed_data():
                 tipo_piel='Grasa, acneica, textura irregular',
                 precio=18.50,
                 stock=45,
-                imagen_url='https://example.com/products/sbm-miracle-toner.jpg',
+                imagen_url='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSpq4itFNV14WFJeuWpB3k11mUZ6ZRcLSlFGtHgb6A97w&s',
                 estado='activo',
                 marca_id=marcas[2].id,
                 categoria_id=categorias[2].id
