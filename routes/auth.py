@@ -225,6 +225,18 @@ def activar_2fa():
     }), 200
 
 
+@auth_bp.route('/cancelar-login', methods=['POST'])
+@solo_en_autenticacion
+def cancelar_login():
+    claims = get_jwt()
+    usuario_id = claims.get('sub')
+    if usuario_id:
+        from models import Codigo2FA
+        Codigo2FA.query.filter_by(usuario_id=int(usuario_id), usado=False).update({'usado': True})
+        db.session.commit()
+    return jsonify({'message': 'Login cancelado. El código pendiente ha sido invalidado.'}), 200
+
+
 @auth_bp.route('/desactivar-2fa', methods=['POST'])
 @jwt_required()
 @rechazar_en_autenticacion
