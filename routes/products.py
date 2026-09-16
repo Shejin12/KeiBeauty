@@ -125,6 +125,7 @@ def create_product():
             precio=precio,
             stock=stock,
             imagen_url=data.get('imagen_url', ''),
+            tamano=tamano,
             estado=data.get('estado', 'activo'),
             marca_id=data['marca_id'],
             categoria_id=data['categoria_id']
@@ -187,6 +188,12 @@ def update_product(product_id):
             if data['estado'] not in ['activo', 'inactivo', 'agotado']:
                 return jsonify({'error': 'Estado inválido', 'message': 'Estado debe ser: activo, inactivo o agotado'}), 400
             producto.estado = data['estado']
+        if 'tamano' in data:
+            producto.tamano = data['tamano']
+        tamano = data.get('tamano', '')
+        if tamano and len(str(tamano)) > 255:
+            return jsonify({'error': 'Tamaño inválido', 'message': 'El tamaño no debe exceder 255 caracteres'}), 400
+
         if 'marca_id' in data:
             marca = db.session.get(Marca, data['marca_id'])
             if not marca:

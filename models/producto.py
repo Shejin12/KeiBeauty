@@ -10,6 +10,7 @@ class Producto(db.Model):
     descripcion = db.Column(db.Text)
     ingredientes_clave = db.Column(db.Text)
     tipo_piel = db.Column(db.String(100))
+    tamano = db.Column(db.String(255), nullable=True)
     precio = db.Column(db.Numeric(10, 2), nullable=False)
     stock = db.Column(db.Integer, default=0, nullable=False)
     imagen_url = db.Column(db.String(255))
@@ -31,6 +32,7 @@ class Producto(db.Model):
             'descripcion': self.descripcion,
             'ingredientes_clave': self.ingredientes_clave,
             'tipo_piel': self.tipo_piel,
+            'tamano': self.tamano,
             'precio': float(self.precio),
             'stock': self.stock,
             'imagen_url': self.imagen_url,
