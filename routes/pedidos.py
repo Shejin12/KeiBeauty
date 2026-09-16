@@ -1,7 +1,7 @@
 import os
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Flask
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
-from imagekitio import ImageKit
+from imagekit import ImageKit
 from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito
 from utils.decorators import admin_required, rechazar_en_autenticacion
 from utils.email import email_service
@@ -330,6 +330,7 @@ def cambiar_estado_pedido(pedido_id):
 
 
 # Configurar cliente ImageKit
+from io import BytesIO
 imagekit_client = ImageKit(
     private_key=os.environ.get('IMAGEKIT_PRIVATE_KEY'),
     public_key=os.environ.get('IMAGEKIT_PUBLIC_KEY'),
@@ -356,8 +357,9 @@ def subir_guia(pedido_id):
             return jsonify({'error': 'Tipo de archivo no soportado', 'message': f'Tipos permitidos: {", ".join(tipos_permitidos)}'}), 400
 
         # Subir archivo a ImageKit
-        upload_response = imagekit_client.upload(
-            file=archivo.read(),
+        archivo_bytes = archivo.read()
+        upload_response = imagekit_client.upload_file(
+            file=BytesIO(archivo_bytes),
             file_name=f"guia_pedido_{pedido_id}_{archivo.filename}",
             folder="/pedidos/guia"
         )
