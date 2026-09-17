@@ -82,9 +82,13 @@ def actualizar_marca(marca_id):
         marca = db.session.get(Marca, marca_id)
         if not marca:
             return jsonify({'error': 'Marca no encontrada', 'message': f'No existe marca con id {marca_id}'}), 404
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'Datos JSON requeridos', 'message': 'El cuerpo debe ser JSON'}), 400
+        # Soportar tanto JSON como FormData (para archivo)
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = request.form.to_dict()
+        if not data and not request.files:
+            return jsonify({'error': 'Datos requeridos', 'message': 'El cuerpo debe contener los campos'}), 400
         if 'nombre' in data and data['nombre']:
             nombre = data['nombre'].strip()
             if nombre and Marca.query.filter(Marca.id != marca_id, Marca.nombre == nombre).first():

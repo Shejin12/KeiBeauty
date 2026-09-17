@@ -201,9 +201,20 @@ def update_product(product_id):
         if not producto:
             return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
 
-        data = request.get_json()
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = request.form.to_dict()
+            for k in ['precio', 'stock', 'marca_id', 'categoria_id']:
+                if k in data and data[k] is not None:
+                    try:
+                        data[k] = float(data[k]) if k == 'precio' else int(float(data[k]))
+                    except (ValueError, TypeError):
+                        pass
+        if not data and not request.files:
+            return jsonify({'error': 'Datos requeridos', 'message': 'El cuerpo debe contener los campos'}), 400
         if not data:
-            return jsonify({'error': 'Datos JSON requeridos', 'message': 'El cuerpo de la petición debe ser JSON válido'}), 400
+            data = {}
 
         if 'nombre' in data and data['nombre']:
             producto.nombre = data['nombre']
