@@ -1,8 +1,8 @@
 import os
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
+from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
 from utils.decorators import admin_required
-from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento, ProductoImagen, Notificacion, ProductoAlerta
+from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento, ProductoImagen, Notificacion, ProductoAlerta, Usuario
 from datetime import datetime
 
 try:
@@ -47,6 +47,27 @@ def notificar_stock_disponible(producto):
         db.session.rollback()
 
 
+def _es_admin_actual():
+    """Helper para detectar si el usuario actual es admin (con token válido y no temporal)"""
+    try:
+        verify_jwt_in_request(optional=True)
+        # Si no hay token, get_jwt_identity() será None
+        uid = get_jwt_identity()
+        if not uid:
+            return False
+        # Verificar que no sea token temporal de 2FA
+        try:
+            from flask_jwt_extended import get_jwt
+            claims = get_jwt()
+            if claims and claims.get('estado') == 'en_autenticacion':
+                return False
+        except:
+            pass
+        usuario = db.session.get(Usuario, int(uid))
+        return usuario is not None and usuario.rol == 'admin'
+    except:
+        return False
+
 @products_bp.route('', methods=['GET'])
 def get_products():
     try:
@@ -56,20 +77,7 @@ def get_products():
         con_favorito = request.args.get('con_favorito', type=int)
         estado = request.args.get('estado', type=str)
 
-        # Detectar si es admin para mostrar todos los estados
-        es_admin = False
-        try:
-            verify_jwt_in_request(optional=True)
-            claims = get_jwt()
-            if claims and claims.get('estado') != 'en_autenticacion':
-                uid = get_jwt_identity()
-                if uid:
-                    from models import Usuario
-                    u = db.session.get(Usuario, int(uid))
-                    if u and u.rol == 'admin':
-                        es_admin = True
-        except:
-            pass
+        es_admin = _es_admin_actual()
 
         if es_admin:
             query = Producto.query
@@ -128,20 +136,7 @@ def get_product(product_id):
 
         # Permitir a admin ver cualquier estado, clientes solo activo
         if producto.estado != 'activo':
-            es_admin = False
-            try:
-                verify_jwt_in_request(optional=True)
-                claims = get_jwt()
-                if claims and claims.get('estado') != 'en_autenticacion':
-                    uid = get_jwt_identity()
-                    if uid:
-                        from models import Usuario
-                        u = db.session.get(Usuario, int(uid))
-                        if u and u.rol == 'admin':
-                            es_admin = True
-            except:
-                pass
-            if not es_admin:
+            if not _es_admin_actual():
                 return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
 
         return jsonify({
