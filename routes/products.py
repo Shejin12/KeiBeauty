@@ -2,7 +2,7 @@ import os
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from utils.decorators import admin_required
-from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento
+from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento, ProductoImagen
 from datetime import datetime
 
 try:
@@ -179,6 +179,15 @@ def create_product():
         )
 
         db.session.add(producto)
+        db.session.flush()  # para obtener id antes de commit
+        # Crear entrada en galería si hay imagen
+        if imagen_url:
+            try:
+                # Limpiar principal anterior si existiera (no debería haber)
+                imagen_principal = ProductoImagen(producto_id=producto.id, imagen_url=imagen_url, es_principal=True, orden=0)
+                db.session.add(imagen_principal)
+            except:
+                pass
         db.session.commit()
 
         return jsonify({
@@ -254,6 +263,13 @@ def update_product(product_id):
                 folder="/productos"
             )
             producto.imagen_url = upload_response.url
+            # También crear entrada en galería como principal
+            try:
+                ProductoImagen.query.filter_by(producto_id=product_id, es_principal=True).update({ProductoImagen.es_principal: False})
+                nueva = ProductoImagen(producto_id=product_id, imagen_url=upload_response.url, es_principal=True, orden=ProductoImagen.query.filter_by(producto_id=product_id).count())
+                db.session.add(nueva)
+            except:
+                pass
         elif 'imagen_url' in data:
             producto.imagen_url = data['imagen_url']
         if 'estado' in data:
@@ -336,6 +352,143 @@ def subir_imagen_producto(product_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Error al subir imagen del producto', 'message': str(e)}), 500
+
+
+# --- Galería múltiple ---
+@products_bp.route('/<int:product_id>/imagenes', methods=['GET'])
+def listar_imagenes_producto(product_id):
+    try:
+        producto = db.session.get(Producto, product_id)
+        if not producto:
+            return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
+        imagenes = ProductoImagen.query.filter_by(producto_id=product_id).order_by(ProductoImagen.es_principal.desc(), ProductoImagen.orden.asc(), ProductoImagen.id.asc()).all()
+        return jsonify({'data': [img.to_dict() for img in imagenes], 'message': 'Imágenes obtenidas exitosamente.'}), 200
+    except Exception as e:
+        return jsonify({'error': 'Error al listar imágenes', 'message': str(e)}), 500
+
+
+@products_bp.route('/<int:product_id>/imagenes', methods=['POST'])
+@jwt_required()
+@admin_required
+def subir_imagenes_galeria(product_id):
+    try:
+        producto = db.session.get(Producto, product_id)
+        if not producto:
+            return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
+        archivos = request.files.getlist('archivos')
+        # Compatibilidad con campo archivo singular
+        if not archivos or (len(archivos) == 1 and archivos[0].filename == ''):
+            archivo = request.files.get('archivo')
+            if archivo and archivo.filename:
+                archivos = [archivo]
+            else:
+                # También permitir URLs via JSON
+                if request.is_json:
+                    data = request.get_json()
+                    urls = data.get('imagenes') or data.get('urls') or []
+                    if isinstance(urls, str):
+                        urls = [urls]
+                    creadas = []
+                    for url in urls:
+                        if not url:
+                            continue
+                        existe_principal = ProductoImagen.query.filter_by(producto_id=product_id, es_principal=True).first()
+                        img = ProductoImagen(producto_id=product_id, imagen_url=url.strip(), es_principal=False if existe_principal else True, orden=ProductoImagen.query.filter_by(producto_id=product_id).count())
+                        db.session.add(img)
+                        creadas.append(img)
+                    db.session.commit()
+                    return jsonify({'data': [c.to_dict() for c in creadas], 'message': f'{len(creadas)} imágenes agregadas.'}), 201
+                return jsonify({'error': 'Archivo requerido', 'message': 'Envía archivos con campo "archivos" o "archivo"'}), 400
+        if not IMAGEKIT_AVAILABLE or imagekit_client is None:
+            return jsonify({'error': 'ImageKit no disponible', 'message': 'SDK no instalado'}), 500
+        tipos_permitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+        creadas = []
+        for archivo in archivos:
+            if not archivo.filename:
+                continue
+            if archivo.content_type not in tipos_permitidos:
+                continue
+            archivo_bytes = archivo.read()
+            upload_response = imagekit_client.files.upload(
+                file=archivo_bytes,
+                file_name=f"producto_{product_id}_{archivo.filename}",
+                folder="/productos"
+            )
+            existe_principal = ProductoImagen.query.filter_by(producto_id=product_id, es_principal=True).first()
+            es_principal = False if existe_principal else (len(creadas) == 0 and ProductoImagen.query.filter_by(producto_id=product_id).count() == 0)
+            img = ProductoImagen(
+                producto_id=product_id,
+                imagen_url=upload_response.url,
+                es_principal=es_principal,
+                orden=ProductoImagen.query.filter_by(producto_id=product_id).count()
+            )
+            db.session.add(img)
+            creadas.append(img)
+        db.session.commit()
+        # Sincronizar imagen_url principal legacy por compatibilidad
+        principal = ProductoImagen.query.filter_by(producto_id=product_id, es_principal=True).first()
+        if principal:
+            producto.imagen_url = principal.imagen_url
+            db.session.commit()
+        return jsonify({'data': [c.to_dict() for c in creadas], 'message': f'{len(creadas)} imágenes subidas exitosamente.'}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al subir imágenes', 'message': str(e)}), 500
+
+
+@products_bp.route('/<int:product_id>/imagenes/<int:imagen_id>/principal', methods=['PUT'])
+@jwt_required()
+@admin_required
+def marcar_imagen_principal(product_id, imagen_id):
+    try:
+        imagen = ProductoImagen.query.filter_by(id=imagen_id, producto_id=product_id).first()
+        if not imagen:
+            return jsonify({'error': 'Imagen no encontrada', 'message': f'No existe imagen {imagen_id} para producto {product_id}'}), 404
+        # Quitar principal anterior
+        ProductoImagen.query.filter_by(producto_id=product_id, es_principal=True).update({ProductoImagen.es_principal: False})
+        imagen.es_principal = True
+        db.session.commit()
+        # Actualizar legacy
+        producto = db.session.get(Producto, product_id)
+        if producto:
+            producto.imagen_url = imagen.imagen_url
+            db.session.commit()
+        return jsonify({'data': imagen.to_dict(), 'message': 'Imagen marcada como principal.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al marcar principal', 'message': str(e)}), 500
+
+
+@products_bp.route('/<int:product_id>/imagenes/<int:imagen_id>', methods=['DELETE'])
+@jwt_required()
+@admin_required
+def eliminar_imagen_galeria(product_id, imagen_id):
+    try:
+        imagen = ProductoImagen.query.filter_by(id=imagen_id, producto_id=product_id).first()
+        if not imagen:
+            return jsonify({'error': 'Imagen no encontrada', 'message': f'No existe imagen {imagen_id}'}), 404
+        era_principal = imagen.es_principal
+        db.session.delete(imagen)
+        db.session.flush()
+        # Si era principal, asignar nueva principal si quedan imágenes
+        if era_principal:
+            siguiente = ProductoImagen.query.filter_by(producto_id=product_id).order_by(ProductoImagen.orden.asc()).first()
+            if siguiente:
+                siguiente.es_principal = True
+                producto = db.session.get(Producto, product_id)
+                if producto:
+                    producto.imagen_url = siguiente.imagen_url
+        else:
+            # Si no era principal y no quedan imágenes con principal, asegurar una
+            if not ProductoImagen.query.filter_by(producto_id=product_id, es_principal=True).first():
+                primera = ProductoImagen.query.filter_by(producto_id=product_id).order_by(ProductoImagen.orden.asc()).first()
+                if primera:
+                    primera.es_principal = True
+        db.session.commit()
+        return jsonify({'data': None, 'message': 'Imagen eliminada exitosamente.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al eliminar imagen', 'message': str(e)}), 500
 
 
 @products_bp.route('/<int:product_id>/inventario', methods=['POST'])

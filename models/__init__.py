@@ -10,6 +10,7 @@ from models.recuperacion_contrasena import RecuperacionContrasena
 from models.codigo_2fa import Codigo2FA
 from models.producto_favorito import ProductoFavorito
 from models.inventario_movimiento import InventarioMovimiento
+from models.producto_imagen import ProductoImagen
 
 __all__ = [
     'db',
@@ -25,5 +26,6 @@ __all__ = [
     'RecuperacionContrasena',
     'Codigo2FA',
     'ProductoFavorito',
-    'InventarioMovimiento'
+    'InventarioMovimiento',
+    'ProductoImagen'
 ]
