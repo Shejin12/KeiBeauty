@@ -1,7 +1,21 @@
+import os
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from utils.decorators import admin_required
-from models import db, Producto, Marca, Categoria, ProductoFavorito
+from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento
+from datetime import datetime
+
+try:
+    from imagekitio import ImageKit
+    IMAGEKIT_AVAILABLE = True
+except ImportError:
+    IMAGEKIT_AVAILABLE = False
+
+imagekit_client = None
+if IMAGEKIT_AVAILABLE:
+    imagekit_client = ImageKit(
+        private_key=os.environ.get('IMAGEKIT_PRIVATE_KEY')
+    )
 
 products_bp = Blueprint('products', __name__, url_prefix='/api/products')
 
@@ -89,9 +103,21 @@ def get_categorias():
 @admin_required
 def create_product():
     try:
-        data = request.get_json()
+        archivo = request.files.get('archivo')
+        # Leer datos: puede ser JSON o form-data
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = request.form.to_dict()
+            # Convertir valores numéricos en form-data
+            for k in ['precio', 'stock', 'marca_id', 'categoria_id']:
+                if k in data and data[k] is not None:
+                    try:
+                        data[k] = float(data[k]) if k == 'precio' else int(data[k])
+                    except (ValueError, TypeError):
+                        pass
         if not data:
-            return jsonify({'error': 'Datos JSON requeridos', 'message': 'El cuerpo de la petición debe ser JSON válido'}), 400
+            return jsonify({'error': 'Datos requeridos', 'message': 'El cuerpo debe contener los campos del producto'}), 400
 
         required_fields = ['nombre', 'precio', 'stock', 'marca_id', 'categoria_id']
         missing = [f for f in required_fields if f not in data or data[f] is None]
@@ -121,6 +147,23 @@ def create_product():
         if tamano and len(str(tamano)) > 255:
             return jsonify({'error': 'Tamaño inválido', 'message': 'El tamaño no debe exceder 255 caracteres'}), 400
 
+        # Subir imagen si se envía archivo
+        archivo = request.files.get('archivo')
+        imagen_url = data.get('imagen_url', '')
+        if archivo and archivo.filename:
+            tipos_permitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+            if archivo.content_type not in tipos_permitidos:
+                return jsonify({'error': 'Tipo de archivo no soportado', 'message': f'Tipos permitidos: {", ".join(tipos_permitidos)}'}), 400
+            if not IMAGEKIT_AVAILABLE or imagekit_client is None:
+                return jsonify({'error': 'ImageKit no disponible', 'message': 'El SDK de ImageKit no está instalado o las credenciales no son válidas.'}), 500
+            archivo_bytes = archivo.read()
+            upload_response = imagekit_client.files.upload(
+                file=archivo_bytes,
+                file_name=f"producto_{data['nombre']}_{archivo.filename}",
+                folder="/productos"
+            )
+            imagen_url = upload_response.url
+
         producto = Producto(
             nombre=data['nombre'],
             descripcion=data.get('descripcion', ''),
@@ -128,7 +171,7 @@ def create_product():
             tipo_piel=data.get('tipo_piel', ''),
             precio=precio,
             stock=stock,
-            imagen_url=data.get('imagen_url', ''),
+            imagen_url=imagen_url,
             tamano=tamano,
             estado=data.get('estado', 'activo'),
             marca_id=data['marca_id'],
@@ -186,7 +229,21 @@ def update_product(product_id):
                 producto.stock = stock
             except (ValueError, TypeError):
                 return jsonify({'error': 'Stock inválido', 'message': 'El stock debe ser un entero válido'}), 400
-        if 'imagen_url' in data:
+        archivo = request.files.get('archivo')
+        if archivo and archivo.filename:
+            tipos_permitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+            if archivo.content_type not in tipos_permitidos:
+                return jsonify({'error': 'Tipo de archivo no soportado', 'message': f'Tipos permitidos: {", ".join(tipos_permitidos)}'}), 400
+            if not IMAGEKIT_AVAILABLE or imagekit_client is None:
+                return jsonify({'error': 'ImageKit no disponible', 'message': 'El SDK de ImageKit no está instalado.'}), 500
+            archivo_bytes = archivo.read()
+            upload_response = imagekit_client.files.upload(
+                file=archivo_bytes,
+                file_name=f"producto_{product_id}_{archivo.filename}",
+                folder="/productos"
+            )
+            producto.imagen_url = upload_response.url
+        elif 'imagen_url' in data:
             producto.imagen_url = data['imagen_url']
         if 'estado' in data:
             if data['estado'] not in ['activo', 'inactivo', 'agotado']:
@@ -195,6 +252,7 @@ def update_product(product_id):
         if 'tamano' in data:
             producto.tamano = data['tamano']
         if 'marca_id' in data:
+            marca = db.session.get(Marca, data['marca_id'])
             if not marca:
                 return jsonify({'error': 'Marca no encontrada', 'message': f'No existe marca con id {data["marca_id"]}'}), 404
             producto.marca_id = data['marca_id']
@@ -237,6 +295,89 @@ def delete_product(product_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Error al eliminar producto', 'message': str(e)}), 500
+
+
+@products_bp.route('/<int:product_id>/imagen', methods=['POST'])
+@jwt_required()
+@admin_required
+def subir_imagen_producto(product_id):
+    try:
+        producto = db.session.get(Producto, product_id)
+        if not producto:
+            return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
+        archivo = request.files.get('archivo')
+        if not archivo:
+            return jsonify({'error': 'Archivo requerido', 'message': 'Se debe enviar un archivo con el campo "archivo"'}), 400
+        tipos_permitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+        if archivo.content_type not in tipos_permitidos:
+            return jsonify({'error': 'Tipo de archivo no soportado', 'message': f'Tipos permitidos: {", ".join(tipos_permitidos)}'}), 400
+        if not IMAGEKIT_AVAILABLE or imagekit_client is None:
+            return jsonify({'error': 'ImageKit no disponible', 'message': 'El SDK de ImageKit no está instalado o las credenciales no son válidas.'}), 500
+        archivo_bytes = archivo.read()
+        upload_response = imagekit_client.files.upload(
+            file=archivo_bytes,
+            file_name=f"producto_{product_id}_{archivo.filename}",
+            folder="/productos"
+        )
+        producto.imagen_url = upload_response.url
+        db.session.commit()
+        return jsonify({'data': producto.to_dict(), 'message': 'Imagen del producto subida exitosamente.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al subir imagen del producto', 'message': str(e)}), 500
+
+
+@products_bp.route('/<int:product_id>/inventario', methods=['POST'])
+@jwt_required()
+@admin_required
+def ajustar_inventario(product_id):
+    try:
+        producto = db.session.get(Producto, product_id)
+        if not producto:
+            return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Datos JSON requeridos', 'message': 'El cuerpo de la petición debe ser JSON válido'}), 400
+        tipo = data.get('tipo')
+        cantidad = data.get('cantidad')
+        if tipo not in ['entrada', 'salida']:
+            return jsonify({'error': 'Tipo inválido', 'message': 'El tipo debe ser: entrada o salida'}), 400
+        try:
+            cantidad = int(cantidad)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Cantidad inválida', 'message': 'La cantidad debe ser un número entero'}), 400
+        if cantidad <= 0:
+            return jsonify({'error': 'Cantidad inválida', 'message': 'La cantidad debe ser mayor a 0'}), 400
+        if tipo == 'entrada':
+            producto.stock += cantidad
+        elif tipo == 'salida':
+            if producto.stock < cantidad:
+                return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades disponibles'}), 400
+            producto.stock -= cantidad
+        movimiento = InventarioMovimiento(
+            producto_id=producto.id,
+            tipo=tipo,
+            cantidad=cantidad
+        )
+        db.session.add(movimiento)
+        db.session.commit()
+        return jsonify({'data': producto.to_dict(), 'message': f'Inventario actualizado: {tipo} de {cantidad} unidades'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al ajustar inventario', 'message': str(e)}), 500
+
+
+@products_bp.route('/marcas', methods=['GET', 'OPTIONS'])
+def get_marcas():
+    try:
+        marcas = Marca.query.all()
+        data = [{'id': m.id, 'nombre': m.nombre, 'logo_url': m.logo_url} for m in marcas]
+        return jsonify({
+            'data': data,
+            'message': 'Marcas obtenidas exitosamente.'
+        }), 200
+    except Exception as e:
+        return jsonify({'error': 'Error al obtener marcas', 'message': str(e)}), 500
 
 
 @products_bp.route('/admin-test', methods=['GET'])
