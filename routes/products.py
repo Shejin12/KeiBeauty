@@ -54,8 +54,30 @@ def get_products():
         marca = request.args.get('marca', type=int)
         buscar = request.args.get('buscar', type=str)
         con_favorito = request.args.get('con_favorito', type=int)
+        estado = request.args.get('estado', type=str)
 
-        query = Producto.query.filter_by(estado='activo')
+        # Detectar si es admin para mostrar todos los estados
+        es_admin = False
+        try:
+            verify_jwt_in_request(optional=True)
+            claims = get_jwt()
+            if claims and claims.get('estado') != 'en_autenticacion':
+                uid = get_jwt_identity()
+                if uid:
+                    from models import Usuario
+                    u = db.session.get(Usuario, int(uid))
+                    if u and u.rol == 'admin':
+                        es_admin = True
+        except:
+            pass
+
+        if es_admin:
+            query = Producto.query
+            if estado and estado in ['activo', 'inactivo', 'agotado']:
+                query = query.filter_by(estado=estado)
+            # si no hay estado, mostrar todos (sin filtro)
+        else:
+            query = Producto.query.filter_by(estado='activo')
 
         if categoria:
             query = query.filter_by(categoria_id=categoria)
@@ -101,8 +123,26 @@ def get_product(product_id):
     try:
         producto = db.session.get(Producto, product_id)
 
-        if not producto or producto.estado != 'activo':
+        if not producto:
             return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
+
+        # Permitir a admin ver cualquier estado, clientes solo activo
+        if producto.estado != 'activo':
+            es_admin = False
+            try:
+                verify_jwt_in_request(optional=True)
+                claims = get_jwt()
+                if claims and claims.get('estado') != 'en_autenticacion':
+                    uid = get_jwt_identity()
+                    if uid:
+                        from models import Usuario
+                        u = db.session.get(Usuario, int(uid))
+                        if u and u.rol == 'admin':
+                            es_admin = True
+            except:
+                pass
+            if not es_admin:
+                return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
 
         return jsonify({
             'data': producto.to_dict(),
