@@ -20,7 +20,7 @@ if IMAGEKIT_AVAILABLE:
 products_bp = Blueprint('products', __name__, url_prefix='/api/products')
 
 def notificar_stock_disponible(producto):
-    """Notifica a usuarios con alerta activa cuando el producto vuelve a tener stock"""
+    """Notifica por app y correo a usuarios con alerta activa cuando el producto vuelve a tener stock"""
     try:
         if producto.stock <= 0:
             return
@@ -31,6 +31,15 @@ def notificar_stock_disponible(producto):
             notif = Notificacion(usuario_id=alerta.usuario_id, tipo='producto_stock', titulo=titulo, mensaje=mensaje, datos={'producto_id': producto.id, 'stock': producto.stock})
             db.session.add(notif)
             alerta.activa = False  # Desactivar tras notificar (una sola vez)
+            # Enviar correo también
+            try:
+                from models import Usuario
+                usuario = db.session.get(Usuario, alerta.usuario_id)
+                if usuario and usuario.email:
+                    from utils.email import email_service
+                    email_service.enviar_notificacion_stock(usuario.email, usuario.nombre, producto.to_dict())
+            except Exception as e:
+                print(f"Error enviando correo stock a {alerta.usuario_id}: {e}")
         if alertas:
             db.session.commit()
     except Exception as e:
@@ -182,6 +191,7 @@ def create_product():
             )
             imagen_url = upload_response.url
 
+        estado_inicial = 'agotado' if stock == 0 else data.get('estado', 'activo')
         producto = Producto(
             nombre=data['nombre'],
             descripcion=data.get('descripcion', ''),
@@ -191,7 +201,7 @@ def create_product():
             stock=stock,
             imagen_url=imagen_url,
             tamano=tamano,
-            estado=data.get('estado', 'activo'),
+            estado=estado_inicial,
             marca_id=data['marca_id'],
             categoria_id=data['categoria_id']
         )
@@ -266,6 +276,11 @@ def update_product(product_id):
                 if stock < 0:
                     return jsonify({'error': 'Stock inválido', 'message': 'El stock no puede ser negativo'}), 400
                 producto.stock = stock
+                # Actualizar estado según stock
+                if stock == 0:
+                    producto.estado = 'agotado'
+                elif producto.estado == 'agotado' and stock > 0:
+                    producto.estado = 'activo'
             except (ValueError, TypeError):
                 return jsonify({'error': 'Stock inválido', 'message': 'El stock debe ser un entero válido'}), 400
         archivo = request.files.get('archivo')
@@ -541,6 +556,11 @@ def ajustar_inventario(product_id):
             if producto.stock < cantidad:
                 return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades disponibles'}), 400
             producto.stock -= cantidad
+        # Actualizar estado según stock
+        if producto.stock == 0:
+            producto.estado = 'agotado'
+        elif producto.estado == 'agotado' and producto.stock > 0:
+            producto.estado = 'activo'
         movimiento = InventarioMovimiento(
             producto_id=producto.id,
             tipo=tipo,

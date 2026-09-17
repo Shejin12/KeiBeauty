@@ -185,9 +185,14 @@ def crear_pedido():
                 )
                 db.session.add(detalle)
                 
-                # Reducir stock
+                # Reducir stock y actualizar estado si se agota
                 producto = db.session.get(Producto, item['producto_id'])
                 producto.stock -= item['cantidad']
+                if producto.stock <= 0:
+                    producto.stock = 0
+                    producto.estado = 'agotado'
+                elif producto.estado == 'agotado' and producto.stock > 0:
+                    producto.estado = 'activo'
             
             # Si es usuario autenticado, vaciar carrito
             if not es_invitado and carrito:
@@ -336,7 +341,7 @@ def cambiar_estado_pedido(pedido_id):
         pedido.fecha_actualizacion = db.func.now()
         db.session.commit()
 
-        # Crear notificación para el cliente
+        # Crear notificación y enviar correo para el cliente
         try:
             if pedido.usuario_id:
                 titulo = f"Tu pedido #{pedido.id} está {nuevo_estado}"
@@ -344,6 +349,13 @@ def cambiar_estado_pedido(pedido_id):
                 notif = Notificacion(usuario_id=pedido.usuario_id, tipo='pedido_estado', titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'estado': nuevo_estado})
                 db.session.add(notif)
                 db.session.commit()
+                # Enviar correo también
+                try:
+                    usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, pedido.usuario_id)
+                    if usuario and usuario.email:
+                        email_service.enviar_notificacion_pedido_estado(usuario.email, usuario.nombre, pedido.id, nuevo_estado, pedido.to_dict())
+                except Exception as e:
+                    print(f"Error enviando correo estado pedido: {e}")
         except Exception as e:
             print(f"Error notificación estado pedido: {e}")
 
@@ -398,7 +410,7 @@ def subir_guia(pedido_id):
         pedido.fecha_actualizacion = db.func.now()
         db.session.commit()
 
-        # Notificación guía subida
+        # Notificación y correo guía subida
         try:
             if pedido.usuario_id:
                 titulo = f"Guía agregada a tu pedido #{pedido.id}"
@@ -406,6 +418,12 @@ def subir_guia(pedido_id):
                 notif = Notificacion(usuario_id=pedido.usuario_id, tipo='pedido_guia', titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'url_guia': pedido.url_guia})
                 db.session.add(notif)
                 db.session.commit()
+                try:
+                    usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, pedido.usuario_id)
+                    if usuario and usuario.email:
+                        email_service.enviar_notificacion_guia(usuario.email, usuario.nombre, pedido.id, pedido.url_guia)
+                except Exception as e:
+                    print(f"Error enviando correo guía: {e}")
         except Exception as e:
             print(f"Error notificación guía: {e}")
 
