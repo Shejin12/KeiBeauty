@@ -66,7 +66,18 @@ def login():
     if not usuario or not usuario.check_password(password):
         return jsonify({'error': 'Credenciales inválidas.'}), 401
 
-    # 2FA obligatorio para todos los usuarios
+    # Si 2FA no está activado, login directo sin código
+    if not usuario.two_factor_enabled:
+        access_token = create_access_token(identity=str(usuario.id))
+        refresh_token = create_refresh_token(identity=str(usuario.id))
+        return jsonify({
+            'mensaje': 'Login exitoso.',
+            'usuario': usuario.to_dict(),
+            'access_token': access_token,
+            'refresh_token': refresh_token
+        }), 200
+
+    # 2FA activado: enviar código y token temporal
     try:
         ip = request.remote_addr
         codigo, codigo_2fa = Codigo2FA.crear_codigo(usuario.id, ip=ip)
@@ -122,9 +133,6 @@ def verificar_2fa():
 
     if not usuario:
         return jsonify({'error': 'Usuario no encontrado.'}), 404
-
-    if not usuario.two_factor_enabled:
-        return jsonify({'error': '2FA no está activado para este usuario.'}), 400
 
     codigo_2fa, error = Codigo2FA.validar_codigo(int(usuario_id), codigo)
     if error:

@@ -1,8 +1,16 @@
+import os
+from io import BytesIO
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
-from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito
 from utils.decorators import admin_required, rechazar_en_autenticacion
 from utils.email import email_service
+from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito, Notificacion, ProductoAlerta
+
+try:
+    from imagekitio import ImageKit
+    IMAGEKIT_AVAILABLE = True
+except ImportError:
+    IMAGEKIT_AVAILABLE = False
 
 pedidos_bp = Blueprint('pedidos', __name__, url_prefix='/api/pedidos')
 
@@ -177,9 +185,14 @@ def crear_pedido():
                 )
                 db.session.add(detalle)
                 
-                # Reducir stock
+                # Reducir stock y actualizar estado si se agota
                 producto = db.session.get(Producto, item['producto_id'])
                 producto.stock -= item['cantidad']
+                if producto.stock <= 0:
+                    producto.stock = 0
+                    producto.estado = 'agotado'
+                elif producto.estado == 'agotado' and producto.stock > 0:
+                    producto.estado = 'activo'
             
             # Si es usuario autenticado, vaciar carrito
             if not es_invitado and carrito:
@@ -220,10 +233,21 @@ def crear_pedido():
 def listar_pedidos():
     try:
         usuario_id = int(get_jwt_identity())
+        usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, usuario_id)
+        es_admin = usuario and usuario.rol == 'admin'
+        
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         
-        query = Pedido.query.filter_by(usuario_id=usuario_id).order_by(Pedido.fecha_pedido.desc())
+        if es_admin:
+            query = Pedido.query.order_by(Pedido.fecha_pedido.desc())
+        else:
+            query = Pedido.query.filter_by(usuario_id=usuario_id).order_by(Pedido.fecha_pedido.desc())
+        
+        estado_filtro = request.args.get('estado')
+        if estado_filtro:
+            query = query.filter(Pedido.estado == estado_filtro)
+        
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         
         return jsonify({
@@ -316,7 +340,25 @@ def cambiar_estado_pedido(pedido_id):
         pedido.estado = nuevo_estado
         pedido.fecha_actualizacion = db.func.now()
         db.session.commit()
-        
+
+        # Crear notificación y enviar correo para el cliente
+        try:
+            if pedido.usuario_id:
+                titulo = f"Tu pedido #{pedido.id} está {nuevo_estado}"
+                mensaje = f"El estado de tu pedido #{pedido.id} cambió a {nuevo_estado.upper()}. Revisa los detalles en Mis Pedidos."
+                notif = Notificacion(usuario_id=pedido.usuario_id, tipo='pedido_estado', titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'estado': nuevo_estado})
+                db.session.add(notif)
+                db.session.commit()
+                # Enviar correo también
+                try:
+                    usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, pedido.usuario_id)
+                    if usuario and usuario.email:
+                        email_service.enviar_notificacion_pedido_estado(usuario.email, usuario.nombre, pedido.id, nuevo_estado, pedido.to_dict())
+                except Exception as e:
+                    print(f"Error enviando correo estado pedido: {e}")
+        except Exception as e:
+            print(f"Error notificación estado pedido: {e}")
+
         return jsonify({
             'data': pedido.to_dict(),
             'message': 'Estado del pedido actualizado exitosamente.'
@@ -325,3 +367,71 @@ def cambiar_estado_pedido(pedido_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Error al actualizar estado', 'message': str(e)}), 500
+
+
+# Configurar cliente ImageKit (opcional)
+imagekit_client = None
+if IMAGEKIT_AVAILABLE:
+    imagekit_client = ImageKit(
+        private_key=os.environ.get('IMAGEKIT_PRIVATE_KEY')
+    )
+
+
+@pedidos_bp.route('/<int:pedido_id>/guia', methods=['PUT', 'POST'])
+@jwt_required()
+@admin_required
+def subir_guia(pedido_id):
+    try:
+        pedido = db.session.get(Pedido, pedido_id)
+        if not pedido:
+            return jsonify({'error': 'Pedido no encontrado', 'message': f'No existe pedido con id {pedido_id}'}), 404
+
+        archivo = request.files.get('archivo')
+        if not archivo:
+            return jsonify({'error': 'Archivo requerido', 'message': 'Se debe enviar un archivo con el campo "archivo"'}), 400
+
+        # Validar tipo de archivo (solo imágenes)
+        tipos_permitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+        if archivo.content_type not in tipos_permitidos:
+            return jsonify({'error': 'Tipo de archivo no soportado', 'message': f'Tipos permitidos: {", ".join(tipos_permitidos)}'}), 400
+
+        # Subir archivo a ImageKit
+        if not IMAGEKIT_AVAILABLE or imagekit_client is None:
+            return jsonify({'error': 'ImageKit no disponible', 'message': 'El SDK de ImageKit no está instalado o las credenciales no son válidas.'}), 500
+
+        archivo_bytes = archivo.read()
+        upload_response = imagekit_client.files.upload(
+            file=archivo_bytes,
+            file_name=f"guia_pedido_{pedido_id}_{archivo.filename}",
+            folder="/pedidos/guia"
+        )
+
+        pedido.url_guia = upload_response.url
+        pedido.fecha_actualizacion = db.func.now()
+        db.session.commit()
+
+        # Notificación y correo guía subida
+        try:
+            if pedido.usuario_id:
+                titulo = f"Guía agregada a tu pedido #{pedido.id}"
+                mensaje = f"Se agregó la guía de envío a tu pedido #{pedido.id}. Ya puedes rastrear tu entrega en Mis Pedidos."
+                notif = Notificacion(usuario_id=pedido.usuario_id, tipo='pedido_guia', titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'url_guia': pedido.url_guia})
+                db.session.add(notif)
+                db.session.commit()
+                try:
+                    usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, pedido.usuario_id)
+                    if usuario and usuario.email:
+                        email_service.enviar_notificacion_guia(usuario.email, usuario.nombre, pedido.id, pedido.url_guia)
+                except Exception as e:
+                    print(f"Error enviando correo guía: {e}")
+        except Exception as e:
+            print(f"Error notificación guía: {e}")
+
+        return jsonify({
+            'data': pedido.to_dict(),
+            'message': 'Imagen de guía subida exitosamente.'
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al subir imagen de guía', 'message': str(e)}), 500
