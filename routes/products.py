@@ -584,6 +584,16 @@ def ajustar_inventario(product_id):
             return jsonify({'error': 'Cantidad inválida', 'message': 'La cantidad debe ser un número entero'}), 400
         if cantidad <= 0:
             return jsonify({'error': 'Cantidad inválida', 'message': 'La cantidad debe ser mayor a 0'}), 400
+        costo_unitario = data.get('costo_unitario')
+        if tipo == 'entrada' and costo_unitario is not None:
+            try:
+                costo_unitario = float(costo_unitario)
+                if costo_unitario < 0:
+                    return jsonify({'error': 'Costo inválido', 'message': 'El costo no puede ser negativo'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Costo inválido', 'message': 'Costo debe ser número'}), 400
+        else:
+            costo_unitario = None
         stock_previo = producto.stock
         if tipo == 'entrada':
             producto.stock += cantidad
@@ -599,7 +609,8 @@ def ajustar_inventario(product_id):
         movimiento = InventarioMovimiento(
             producto_id=producto.id,
             tipo=tipo,
-            cantidad=cantidad
+            cantidad=cantidad,
+            costo_unitario=costo_unitario if tipo == 'entrada' else None
         )
         db.session.add(movimiento)
         db.session.commit()

@@ -6,7 +6,7 @@ from flask_jwt_extended import JWTManager
 from config import config
 from models.db import init_db
 from models import db
-from routes import auth_bp, products_bp, categorias_bp, carrito_bp, pedidos_bp, favoritos_bp, marcas_bp, resenas_bp, notificaciones_bp
+from routes import auth_bp, products_bp, categorias_bp, carrito_bp, pedidos_bp, favoritos_bp, marcas_bp, resenas_bp, notificaciones_bp, reportes_bp
 
 migrate = Migrate()
 jwt = JWTManager()
@@ -47,6 +47,7 @@ def create_app(config_name=None):
     app.register_blueprint(marcas_bp)
     app.register_blueprint(resenas_bp)
     app.register_blueprint(notificaciones_bp)
+    app.register_blueprint(reportes_bp)
 
     @app.route('/health')
     def health():
