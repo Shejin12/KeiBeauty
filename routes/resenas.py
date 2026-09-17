@@ -6,20 +6,41 @@ from models import db, Resena, Producto, Pedido, DetallePedido, Usuario
 resenas_bp = Blueprint('resenas', __name__, url_prefix='/api/resenas')
 
 @resenas_bp.route('', methods=['GET'])
-@jwt_required()
-@admin_required
 def listar_resenas():
     try:
         producto_id = request.args.get('producto', type=int)
-        query = Resena.query
+        # Si se pide por producto, es público (para detalle de producto)
         if producto_id:
-            query = query.filter_by(producto_id=producto_id)
-        resenas = query.order_by(Resena.fecha.desc()).all()
+            resenas = Resena.query.filter_by(producto_id=producto_id).order_by(Resena.fecha.desc()).all()
+            # Calcular promedio
+            promedio = None
+            total = len(resenas)
+            if total > 0:
+                promedio = round(sum(r.calificacion for r in resenas) / total, 1)
+            return jsonify({
+                'data': [r.to_dict() for r in resenas],
+                'promedio': promedio,
+                'total': total,
+                'message': 'Reseñas obtenidas exitosamente.'
+            }), 200
+        # Sin producto, requiere admin (lista completa)
+        from flask_jwt_extended import verify_jwt_in_request
+        verify_jwt_in_request()
+        from utils.decorators import admin_required
+        # Verificar rol manualmente
+        usuario_id = get_jwt_identity()
+        usuario = db.session.get(Usuario, int(usuario_id))
+        if not usuario or usuario.rol != 'admin':
+            return jsonify({'error': 'Acceso denegado', 'message': 'Se requiere rol de administrador'}), 403
+        resenas = Resena.query.order_by(Resena.fecha.desc()).all()
         return jsonify({
             'data': [r.to_dict() for r in resenas],
             'message': 'Reseñas obtenidas exitosamente.'
         }), 200
     except Exception as e:
+        # Si es error de JWT y había producto_id, ya se manejó arriba; si no, intentar mensaje claro
+        if 'producto' in request.args:
+            return jsonify({'error': 'Error al listar reseñas', 'message': str(e)}), 500
         return jsonify({'error': 'Error al listar reseñas', 'message': str(e)}), 500
 
 @resenas_bp.route('', methods=['POST'])

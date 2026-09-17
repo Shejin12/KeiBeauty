@@ -40,6 +40,7 @@ class Producto(db.Model):
             'marca_id': self.marca_id,
             'categoria_id': self.categoria_id,
             'marca_nombre': self.marca.nombre if self.marca else None,
+            'marca_logo_url': self.marca.logo_url if self.marca and self.marca.logo_url else None,
             'categoria_nombre': self.categoria.nombre if self.categoria else None,
             'fecha_creacion': self.fecha_creacion.isoformat() if self.fecha_creacion else None
         }
