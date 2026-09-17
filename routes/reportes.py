@@ -16,7 +16,7 @@ def _excel_response(wb, filename):
     output.seek(0)
     return send_file(output, as_attachment=True, download_name=filename, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-def _generar_excel(titulo, headers, rows, filename):
+def _generar_excel(titulo, headers, rows, filename, subtitulo=None):
     wb = Workbook()
     ws = wb.active
     ws.title = titulo[:30]
@@ -29,9 +29,20 @@ def _generar_excel(titulo, headers, rows, filename):
         ws.merge_cells(f'A1:{end_col}1')
         ws['A1'].font = Font(size=14, bold=True, color="3A3E40")
         ws['A1'].alignment = Alignment(horizontal='center')
-        ws.append(headers)
+        # Subtítulo con periodo si se proporciona
+        header_row = 2
+        if subtitulo:
+            ws.append([subtitulo])
+            ws.merge_cells(f'A2:{end_col}2')
+            ws['A2'].font = Font(size=10, italic=True, color="565659")
+            ws['A2'].alignment = Alignment(horizontal='center')
+            header_row = 3
+            ws.append(headers)
+        else:
+            ws.append(headers)
+        # Estilo encabezado
         for col in range(1, len(headers)+1):
-            cell = ws.cell(row=2, column=col)
+            cell = ws.cell(row=header_row, column=col)
             cell.fill = fill
             cell.font = font
             cell.alignment = Alignment(horizontal='center')
@@ -155,7 +166,8 @@ def ventas_por_periodo():
                 rows.append([p.id, p.fecha_pedido.strftime('%Y-%m-%d'), nombre, p.estado, float(p.monto_total)])
             rows.append([])
             rows.append(['Total', '', '', '', total])
-            return _generar_excel('Ventas por Periodo', headers, rows, f'ventas_{desde_str}_{hasta_str}.xlsx')
+            subtitulo = f'Periodo: {desde_str} al {hasta_str}'
+            return _generar_excel('Ventas por Periodo', headers, rows, f'ventas_{desde_str}_{hasta_str}.xlsx', subtitulo=subtitulo)
 
         return jsonify({
             'data': {
