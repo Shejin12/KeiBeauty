@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
 from utils.decorators import admin_required, rechazar_en_autenticacion
 from utils.email import email_service
-from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito
+from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito, Notificacion, ProductoAlerta
 
 try:
     from imagekitio import ImageKit
@@ -335,7 +335,18 @@ def cambiar_estado_pedido(pedido_id):
         pedido.estado = nuevo_estado
         pedido.fecha_actualizacion = db.func.now()
         db.session.commit()
-        
+
+        # Crear notificación para el cliente
+        try:
+            if pedido.usuario_id:
+                titulo = f"Tu pedido #{pedido.id} está {nuevo_estado}"
+                mensaje = f"El estado de tu pedido #{pedido.id} cambió a {nuevo_estado.upper()}. Revisa los detalles en Mis Pedidos."
+                notif = Notificacion(usuario_id=pedido.usuario_id, tipo='pedido_estado', titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'estado': nuevo_estado})
+                db.session.add(notif)
+                db.session.commit()
+        except Exception as e:
+            print(f"Error notificación estado pedido: {e}")
+
         return jsonify({
             'data': pedido.to_dict(),
             'message': 'Estado del pedido actualizado exitosamente.'
@@ -386,6 +397,17 @@ def subir_guia(pedido_id):
         pedido.url_guia = upload_response.url
         pedido.fecha_actualizacion = db.func.now()
         db.session.commit()
+
+        # Notificación guía subida
+        try:
+            if pedido.usuario_id:
+                titulo = f"Guía agregada a tu pedido #{pedido.id}"
+                mensaje = f"Se agregó la guía de envío a tu pedido #{pedido.id}. Ya puedes rastrear tu entrega en Mis Pedidos."
+                notif = Notificacion(usuario_id=pedido.usuario_id, tipo='pedido_guia', titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'url_guia': pedido.url_guia})
+                db.session.add(notif)
+                db.session.commit()
+        except Exception as e:
+            print(f"Error notificación guía: {e}")
 
         return jsonify({
             'data': pedido.to_dict(),

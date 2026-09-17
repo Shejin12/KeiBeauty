@@ -11,6 +11,8 @@ from models.codigo_2fa import Codigo2FA
 from models.producto_favorito import ProductoFavorito
 from models.inventario_movimiento import InventarioMovimiento
 from models.producto_imagen import ProductoImagen
+from models.notificacion import Notificacion
+from models.producto_alerta import ProductoAlerta
 
 __all__ = [
     'db',
@@ -27,5 +29,7 @@ __all__ = [
     'Codigo2FA',
     'ProductoFavorito',
     'InventarioMovimiento',
-    'ProductoImagen'
+    'ProductoImagen',
+    'Notificacion',
+    'ProductoAlerta'
 ]

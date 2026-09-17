@@ -2,7 +2,7 @@ import os
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from utils.decorators import admin_required
-from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento, ProductoImagen
+from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento, ProductoImagen, Notificacion, ProductoAlerta
 from datetime import datetime
 
 try:
@@ -18,6 +18,24 @@ if IMAGEKIT_AVAILABLE:
     )
 
 products_bp = Blueprint('products', __name__, url_prefix='/api/products')
+
+def notificar_stock_disponible(producto):
+    """Notifica a usuarios con alerta activa cuando el producto vuelve a tener stock"""
+    try:
+        if producto.stock <= 0:
+            return
+        alertas = ProductoAlerta.query.filter_by(producto_id=producto.id, activa=True).all()
+        for alerta in alertas:
+            titulo = f"{producto.nombre} ¡ya está disponible!"
+            mensaje = f"El producto {producto.nombre} que esperabas ya tiene stock ({producto.stock} unidades). ¡No te quedes sin el tuyo!"
+            notif = Notificacion(usuario_id=alerta.usuario_id, tipo='producto_stock', titulo=titulo, mensaje=mensaje, datos={'producto_id': producto.id, 'stock': producto.stock})
+            db.session.add(notif)
+            alerta.activa = False  # Desactivar tras notificar (una sola vez)
+        if alertas:
+            db.session.commit()
+    except Exception as e:
+        print(f"Error notificando stock: {e}")
+        db.session.rollback()
 
 
 @products_bp.route('', methods=['GET'])
@@ -210,6 +228,7 @@ def update_product(product_id):
         if not producto:
             return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
 
+        stock_previo = producto.stock
         if request.is_json:
             data = request.get_json()
         else:
@@ -290,6 +309,9 @@ def update_product(product_id):
             producto.categoria_id = data['categoria_id']
 
         db.session.commit()
+        # Notificar si volvió a tener stock
+        if stock_previo == 0 and producto.stock > 0:
+            notificar_stock_disponible(producto)
 
         return jsonify({
             'data': producto.to_dict(),
@@ -512,6 +534,7 @@ def ajustar_inventario(product_id):
             return jsonify({'error': 'Cantidad inválida', 'message': 'La cantidad debe ser un número entero'}), 400
         if cantidad <= 0:
             return jsonify({'error': 'Cantidad inválida', 'message': 'La cantidad debe ser mayor a 0'}), 400
+        stock_previo = producto.stock
         if tipo == 'entrada':
             producto.stock += cantidad
         elif tipo == 'salida':
@@ -525,6 +548,9 @@ def ajustar_inventario(product_id):
         )
         db.session.add(movimiento)
         db.session.commit()
+        # Si pasó de 0 a >0, notificar
+        if stock_previo == 0 and producto.stock > 0 and tipo == 'entrada':
+            notificar_stock_disponible(producto)
         return jsonify({'data': producto.to_dict(), 'message': f'Inventario actualizado: {tipo} de {cantidad} unidades'}), 200
     except Exception as e:
         db.session.rollback()
