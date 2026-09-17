@@ -24,8 +24,22 @@ class Producto(db.Model):
     detalle_carrito = db.relationship('DetalleCarrito', back_populates='producto', cascade='all, delete-orphan')
     detalle_pedidos = db.relationship('DetallePedido', back_populates='producto', cascade='all, delete-orphan')
     resenas = db.relationship('Resena', back_populates='producto', cascade='all, delete-orphan')
+    imagenes = db.relationship('ProductoImagen', back_populates='producto', cascade='all, delete-orphan', order_by='ProductoImagen.orden')
+
+    def _imagen_principal_url(self):
+        # Buscar imagen principal en galería, fallback a imagen_url
+        if self.imagenes:
+            for img in self.imagenes:
+                if img.es_principal:
+                    return img.imagen_url
+            return self.imagenes[0].imagen_url
+        return self.imagen_url
 
     def to_dict(self):
+        # Ordenar imágenes: principal primero
+        imagenes_ordenadas = []
+        if self.imagenes:
+            imagenes_ordenadas = sorted(self.imagenes, key=lambda x: (not x.es_principal, x.orden, x.id))
         return {
             'id': self.id,
             'nombre': self.nombre,
@@ -35,7 +49,8 @@ class Producto(db.Model):
             'tamano': self.tamano or '',
             'precio': float(self.precio),
             'stock': self.stock,
-            'imagen_url': self.imagen_url,
+            'imagen_url': self._imagen_principal_url(),
+            'imagenes': [img.to_dict() for img in imagenes_ordenadas],
             'estado': self.estado,
             'marca_id': self.marca_id,
             'categoria_id': self.categoria_id,
