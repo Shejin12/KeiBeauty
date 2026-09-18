@@ -706,6 +706,33 @@ curl https://abc123.ngrok-free.app/health
 > (ver README del frontend):Abrí `https://<tu-frontend-ngrok>/config-api?api=https://abc123.ngrok-free.app/api`
 > y listo, sin recompilar nada.
 
+### Opción recomendada: una sola URL (API sirve el frontend)
+
+Evita pelear con dos túneles y con CORS: la API sirve el build del frontend y
+todo corre mismo origen con UN solo `ngrok http 5000`.
+
+```bash
+# 1. Generar el build del frontend
+cd ../KeiBeauty-frontend && npm run build && cd ../KeiBeauty
+
+# 2. Activar en .env (el volumen ../KeiBeauty-frontend/dist ya viene montado):
+# STATIC_DIR=/frontend-dist
+# y recrear:
+docker compose up -d api
+
+# 3. Verificar en local:
+curl -s http://localhost:5000/ | head -c 120          # index.html de la tienda
+curl -s http://localhost:5000/health                  # JSON de la API
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5000/config-api  # 200 (fallback SPA)
+
+# 4. Exponer y abrir en el teléfono (una sola URL):
+ngrok http 5000
+# Tienda:  https://<url>/            (redirige a /catalogo)
+# Config:  https://<url>/config-api?api=https://<url>/api
+```
+
+Sin `STATIC_DIR`, `/` sigue devolviendo el JSON informativo de la API.
+
 ## Troubleshooting
 
 | Problema | Causa probable / solución |

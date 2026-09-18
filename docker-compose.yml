@@ -30,6 +30,7 @@ services:
       IMAGEKIT_PRIVATE_KEY: ${IMAGEKIT_PRIVATE_KEY}
       IMAGEKIT_PUBLIC_KEY: ${IMAGEKIT_PUBLIC_KEY}
       IMAGEKIT_URL_ENDPOINT: ${IMAGEKIT_URL_ENDPOINT}
+      STATIC_DIR: ${STATIC_DIR:-}
     env_file:
       - .env
     ports:
@@ -39,6 +40,9 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
+      # Opcional: servir el build del frontend desde la API (ver STATIC_DIR).
+      # Requiere haber corrido `npm run build` en KeiBeauty-frontend.
+      - ../KeiBeauty-frontend/dist:/frontend-dist:ro
     command: >
       sh -c "flask db upgrade && gunicorn --bind 0.0.0.0:5000 --workers 4 --threads 2 --timeout 120 --reload 'app:create_app()'"
 
