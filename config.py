@@ -25,6 +25,11 @@ class Config:
     
     # Frontend URL para enlaces en emails
     FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+
+    # Directorio con el build del frontend (dist/) para servir la SPA desde la
+    # API. Vacío = la API solo expone JSON. Útil para pruebas con una sola URL
+    # (ej. un túnel ngrok al puerto 5000 muestra tienda + API mismo origen).
+    STATIC_DIR = os.environ.get('STATIC_DIR', '')
     
     # Email (ZohoMail)
     SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.zoho.com')

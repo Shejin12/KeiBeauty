@@ -58,13 +58,30 @@ def create_app(config_name=None):
     def health():
         return {'status': 'ok', 'service': 'KeiBeauty API'}, 200
 
-    @app.route('/')
-    def index():
-        return {
-            'name': 'KeiBeauty API',
-            'version': '1.0.0',
-            'docs': '/health'
-        }, 200
+    dist_dir = app.config.get('STATIC_DIR')
+    if dist_dir and os.path.isdir(dist_dir):
+        # Servir el build del frontend (SPA) desde la API: archivos tal cual
+        # y fallback a index.html para rutas del router (/catalogo, etc.).
+        # Las rutas /api/* y /health las atienden sus vistas, no este fallback.
+        from flask import send_from_directory, abort
+
+        @app.route('/', defaults={'ruta': ''})
+        @app.route('/<path:ruta>')
+        def servir_frontend(ruta):
+            if ruta == 'health' or ruta == 'api' or ruta.startswith('api/'):
+                abort(404)
+            archivo = os.path.join(dist_dir, ruta)
+            if ruta and os.path.isfile(archivo):
+                return send_from_directory(dist_dir, ruta)
+            return send_from_directory(dist_dir, 'index.html')
+    else:
+        @app.route('/')
+        def index():
+            return {
+                'name': 'KeiBeauty API',
+                'version': '1.0.0',
+                'docs': '/health'
+            }, 200
 
     return app
 
