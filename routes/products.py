@@ -92,7 +92,10 @@ def get_products():
         if marca:
             query = query.filter_by(marca_id=marca)
         if buscar:
-            query = query.filter(Producto.nombre.ilike(f'%{buscar}%'))
+            # Escapar comodines LIKE para búsqueda literal: % y _ del usuario
+            # se tratan como texto, no como comodines (bound parameter, sin SQL crudo)
+            patron = buscar.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            query = query.filter(Producto.nombre.ilike(f'%{patron}%', escape='\\'))
 
         productos = query.order_by(Producto.fecha_creacion.desc()).all()
         
