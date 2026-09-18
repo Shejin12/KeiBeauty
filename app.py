@@ -28,9 +28,14 @@ def create_app(config_name=None):
         origins = cors_origins + [cors_regex]
     else:
         origins = cors_origins
-    
+
+    # Regex extra opcional por entorno (ej. dominios ngrok dinámicos para pruebas)
+    cors_regex_extra = app.config.get('CORS_ORIGINS_REGEX_EXTRA')
+    if cors_regex_extra:
+        origins = origins + [cors_regex_extra]
+
     CORS(app, origins=origins, supports_credentials=True, 
-         allow_headers=['Content-Type', 'Authorization', 'X-Guest-Token'], 
+         allow_headers=['Content-Type', 'Authorization', 'X-Guest-Token', 'ngrok-skip-browser-warning'], 
          methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
          expose_headers=['Content-Type', 'Authorization'])
 

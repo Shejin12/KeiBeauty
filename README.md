@@ -107,6 +107,7 @@ realmente (vía `config.py` y `docker-compose.yml`) son:
 | `FLASK_ENV` | No | Entorno (`development`/`production`) | `development` |
 | `FLASK_APP` | No | App Flask para CLI | `app.py` |
 | `CORS_ORIGINS` | No | Orígenes permitidos (coma-separados) | `http://localhost:5173,http://127.0.0.1:5173` |
+| `CORS_ORIGINS_REGEX_EXTRA` | No | Regex extra de orígenes CORS (ej. ngrok con URL cambiante) | `https://.*\.ngrok-free\.app` |
 | `FRONTEND_URL` | No | URL del frontend para enlaces en emails | `http://localhost:5173` |
 | `SMTP_HOST` | No | Servidor SMTP (ZohoMail) | `smtp.zoho.com` |
 | `SMTP_PORT` | No | Puerto SMTP | `587` |
@@ -665,6 +666,45 @@ Reglas obligatorias:
   fuera del código.
 - Validación estricta de stock antes de confirmar compras; descuento atómico en
   la transacción del pedido.
+
+## Ejecución y despliegue
+
+### Desarrollo local (ver Instalación)
+
+- Con Docker: `docker compose up -d` → API en `http://localhost:5000`
+  (`/health` para verificar).
+- Manual: `flask run --port 5000`.
+- Ver qué página abrir: el backend solo expone JSON; la interfaz está en el
+  frontend (`http://localhost:5173`, ver README del frontend).
+
+### Exponer con ngrok (probar desde el teléfono)
+
+Sirve para usar la app desde el móvil cuando el teléfono y la PC no comparten
+red, o para mostrar avances. ngrok da una URL pública distinta en cada arranque
+(salvo dominio reservado).
+
+```bash
+# 1. Instalar ngrok y autenticar (una sola vez)
+ngrok config add-authtoken <tu-authtoken>
+
+# 2. Permitir orígenes ngrok en el backend (una sola vez, ya soportado):
+# en .env agregar:
+# CORS_ORIGINS_REGEX_EXTRA=https://.*\.ngrok-free\.app
+# y recrear el contenedor:
+docker compose up -d api
+
+# 3. Exponer el backend (puerto 5000)
+ngrok http 5000
+# Anotar la URL pública, ej: https://abc123.ngrok-free.app
+# La API queda en https://abc123.ngrok-free.app/api/...
+
+# 4. Verificar desde el teléfono o PC:
+curl https://abc123.ngrok-free.app/health
+```
+
+> El frontend apunta al backend con la URL guardada en `/config-api`
+> (ver README del frontend):Abrí `https://<tu-frontend-ngrok>/config-api?api=https://abc123.ngrok-free.app/api`
+> y listo, sin recompilar nada.
 
 ## Troubleshooting
 
