@@ -16,6 +16,9 @@ class Config:
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost,http://localhost:80,http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5175,http://127.0.0.1:5175,*').split(',')
     # Regex para permitir localhost en cualquier puerto (desarrollo) - flask-cors entiende regex strings
     CORS_ORIGINS_REGEX = r'https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|\d+\.\d+\.\d+\.\d+)(:\d+)?'
+    # Regex extra opcional (ej. túneles ngrok que cambian de URL):
+    # CORS_ORIGINS_REGEX_EXTRA=https://.*\.ngrok-free\.app
+    CORS_ORIGINS_REGEX_EXTRA = os.environ.get('CORS_ORIGINS_REGEX_EXTRA', '')
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'jwt-secret-key-change-in-production')
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
