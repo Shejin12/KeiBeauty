@@ -271,9 +271,9 @@ cancelación. **POST `/api/auth/activar-2fa`** (JWT) → `200`
 | POST | `/api/products/<id>/inventario` | JWT-Admin | `{tipo: entrada\|salida, cantidad, costo_unitario?}` |
 | GET | `/api/products/admin-test` | JWT-Admin | Diagnóstico de rol admin |
 
-Query `GET /api/products`: `categoria=<id>`, `marca=<id>`, `buscar=<texto>`,
-`con_favorito=1` (agrega `es_favorito` con JWT), `estado` (solo admin; clientes
-siempre solo `activo`).
+Query `GET /api/products`: `categoria=<id>`, `marca=<id>`, `buscar=<texto en
+nombre, literal: `%` y `_` se escapan>`, `con_favorito=1` (agrega `es_favorito`
+con JWT), `estado` (solo admin; clientes siempre solo `activo`).
 
 **POST `/api/products`** (admin): obligatorios `nombre`, `precio` (> 0),
 `stock` (≥ 0), `marca_id`, `categoria_id`; opcionales `descripcion`,
@@ -481,6 +481,8 @@ Tienda: `https://<url>/` · Config API:
 - CORS por entorno; en producción restringir orígenes y servir por HTTPS.
 - Secretos solo en `.env` (no versionado).
 - Stock validado y descontado en la transacción del pedido.
+- Sin SQL crudo en ningún endpoint: todo pasa por SQLAlchemy con parámetros
+  enlazados; la búsqueda por nombre escapa los comodines LIKE (`%`, `_`).
 
 ## Troubleshooting
 
