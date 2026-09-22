@@ -2,7 +2,7 @@ import os
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
 from utils.decorators import admin_required
-from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento, ProductoImagen, Notificacion, ProductoAlerta, Usuario
+from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento, ProductoImagen, Notificacion, ProductoAlerta, Usuario, CatalogoEstadoProducto, CatalogoTipoNotificacion
 from datetime import datetime
 
 try:
@@ -26,9 +26,10 @@ def notificar_stock_disponible(producto):
             return
         alertas = ProductoAlerta.query.filter_by(producto_id=producto.id, activa=True).all()
         for alerta in alertas:
+            tipo_stock = CatalogoTipoNotificacion.por_nombre('producto_stock')
             titulo = f"{producto.nombre} ¡ya está disponible!"
             mensaje = f"El producto {producto.nombre} que esperabas ya tiene stock ({producto.stock} unidades). ¡No te quedes sin el tuyo!"
-            notif = Notificacion(usuario_id=alerta.usuario_id, tipo='producto_stock', titulo=titulo, mensaje=mensaje, datos={'producto_id': producto.id, 'stock': producto.stock})
+            notif = Notificacion(usuario_id=alerta.usuario_id, tipo=tipo_stock, titulo=titulo, mensaje=mensaje, datos={'producto_id': producto.id, 'stock': producto.stock})
             db.session.add(notif)
             alerta.activa = False  # Desactivar tras notificar (una sola vez)
             # Enviar correo también
@@ -64,7 +65,7 @@ def _es_admin_actual():
         except:
             pass
         usuario = db.session.get(Usuario, int(uid))
-        return usuario is not None and usuario.rol == 'admin'
+        return usuario is not None and usuario.rol_nombre == 'admin'
     except:
         return False
 
@@ -82,10 +83,13 @@ def get_products():
         if es_admin:
             query = Producto.query
             if estado and estado in ['activo', 'inactivo', 'agotado']:
-                query = query.filter_by(estado=estado)
+                estado_catalogo = CatalogoEstadoProducto.por_nombre(estado)
+                if estado_catalogo:
+                    query = query.filter_by(estado_id=estado_catalogo.id)
             # si no hay estado, mostrar todos (sin filtro)
         else:
-            query = Producto.query.filter_by(estado='activo')
+            estado_activo = CatalogoEstadoProducto.por_nombre('activo')
+            query = Producto.query.filter_by(estado_id=estado_activo.id if estado_activo else None)
 
         if categoria:
             query = query.filter_by(categoria_id=categoria)
@@ -138,7 +142,7 @@ def get_product(product_id):
             return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
 
         # Permitir a admin ver cualquier estado, clientes solo activo
-        if producto.estado != 'activo':
+        if producto.estado_nombre != 'activo':
             if not _es_admin_actual():
                 return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
 
@@ -230,6 +234,9 @@ def create_product():
             imagen_url = upload_response.url
 
         estado_inicial = 'agotado' if stock == 0 else data.get('estado', 'activo')
+        estado_catalogo = CatalogoEstadoProducto.por_nombre(estado_inicial)
+        if not estado_catalogo:
+            return jsonify({'error': 'Estado inválido', 'message': 'Estado debe ser: activo, inactivo o agotado'}), 400
         producto = Producto(
             nombre=data['nombre'],
             descripcion=data.get('descripcion', ''),
@@ -239,7 +246,7 @@ def create_product():
             stock=stock,
             imagen_url=imagen_url,
             tamano=tamano,
-            estado=estado_inicial,
+            estado=estado_catalogo,
             marca_id=data['marca_id'],
             categoria_id=data['categoria_id']
         )
@@ -316,9 +323,9 @@ def update_product(product_id):
                 producto.stock = stock
                 # Actualizar estado según stock
                 if stock == 0:
-                    producto.estado = 'agotado'
-                elif producto.estado == 'agotado' and stock > 0:
-                    producto.estado = 'activo'
+                    producto.estado = CatalogoEstadoProducto.por_nombre('agotado')
+                elif producto.estado_nombre == 'agotado' and stock > 0:
+                    producto.estado = CatalogoEstadoProducto.por_nombre('activo')
             except (ValueError, TypeError):
                 return jsonify({'error': 'Stock inválido', 'message': 'El stock debe ser un entero válido'}), 400
         archivo = request.files.get('archivo')
@@ -347,7 +354,10 @@ def update_product(product_id):
         if 'estado' in data:
             if data['estado'] not in ['activo', 'inactivo', 'agotado']:
                 return jsonify({'error': 'Estado inválido', 'message': 'Estado debe ser: activo, inactivo o agotado'}), 400
-            producto.estado = data['estado']
+            estado_catalogo = CatalogoEstadoProducto.por_nombre(data['estado'])
+            if not estado_catalogo:
+                return jsonify({'error': 'Estado inválido', 'message': 'Estado debe ser: activo, inactivo o agotado'}), 400
+            producto.estado = estado_catalogo
         if 'tamano' in data:
             producto.tamano = data['tamano']
         if 'marca_id' in data:
@@ -606,9 +616,9 @@ def ajustar_inventario(product_id):
             producto.stock -= cantidad
         # Actualizar estado según stock
         if producto.stock == 0:
-            producto.estado = 'agotado'
-        elif producto.estado == 'agotado' and producto.stock > 0:
-            producto.estado = 'activo'
+            producto.estado = CatalogoEstadoProducto.por_nombre('agotado')
+        elif producto.estado_nombre == 'agotado' and producto.stock > 0:
+            producto.estado = CatalogoEstadoProducto.por_nombre('activo')
         movimiento = InventarioMovimiento(
             producto_id=producto.id,
             tipo=tipo,

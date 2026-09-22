@@ -1,17 +1,21 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
 from utils.decorators import rechazar_en_autenticacion
-from models import db, Notificacion, ProductoAlerta, Producto
+from models import db, Notificacion, ProductoAlerta, Producto, CatalogoTipoNotificacion
 from datetime import datetime
 
 notificaciones_bp = Blueprint('notificaciones', __name__, url_prefix='/api/notificaciones')
 
 def crear_notificacion(usuario_id, tipo, titulo, mensaje, datos=None):
-    """Helper para crear notificación"""
+    """Helper para crear notificación (tipo es el nombre del catálogo)."""
     try:
+        tipo_catalogo = CatalogoTipoNotificacion.por_nombre(tipo)
+        if not tipo_catalogo:
+            print(f"Tipo de notificación desconocido: {tipo}")
+            return None
         notif = Notificacion(
             usuario_id=usuario_id,
-            tipo=tipo,
+            tipo=tipo_catalogo,
             titulo=titulo,
             mensaje=mensaje,
             datos=datos or {}

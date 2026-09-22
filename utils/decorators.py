@@ -13,7 +13,7 @@ def admin_required(fn):
             return jsonify({'error': 'Token temporal de 2FA no válido para esta operación.', 'message': 'Complete la verificación 2FA primero.'}), 403
         usuario_id = get_jwt_identity()
         usuario = db.session.get(Usuario, usuario_id)
-        if not usuario or usuario.rol != 'admin':
+        if not usuario or usuario.rol_nombre != 'admin':
             return jsonify({'error': 'Acceso denegado. Se requiere rol de administrador.'}), 403
         return fn(*args, **kwargs)
     return wrapper

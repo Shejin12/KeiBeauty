@@ -30,7 +30,7 @@ def listar_resenas():
         # Verificar rol manualmente
         usuario_id = get_jwt_identity()
         usuario = db.session.get(Usuario, int(usuario_id))
-        if not usuario or usuario.rol != 'admin':
+        if not usuario or usuario.rol_nombre != 'admin':
             return jsonify({'error': 'Acceso denegado', 'message': 'Se requiere rol de administrador'}), 403
         resenas = Resena.query.order_by(Resena.fecha.desc()).all()
         return jsonify({

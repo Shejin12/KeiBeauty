@@ -12,10 +12,11 @@ class Usuario(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     telefono = db.Column(db.String(20), nullable=False)
     direccion_envio = db.Column(db.Text)
-    rol = db.Column(db.String(20), default='cliente', nullable=False)
+    rol_id = db.Column(db.Integer, db.ForeignKey('catalogo_rol_usuario.id'), nullable=False)
     two_factor_enabled = db.Column(db.Boolean, default=True, nullable=False)
     fecha_registro = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
+    rol = db.relationship('CatalogoRolUsuario', backref='usuarios')
     carrito = db.relationship('Carrito', back_populates='usuario', uselist=False, cascade='all, delete-orphan')
     pedidos = db.relationship('Pedido', back_populates='usuario', cascade='all, delete-orphan')
     resenas = db.relationship('Resena', back_populates='usuario', cascade='all, delete-orphan')
@@ -26,6 +27,11 @@ class Usuario(db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+    @property
+    def rol_nombre(self):
+        """Nombre del rol (texto) para compatibilidad con el frontend."""
+        return self.rol.nombre if self.rol else None
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -33,7 +39,8 @@ class Usuario(db.Model):
             'email': self.email,
             'telefono': self.telefono,
             'direccion_envio': self.direccion_envio,
-            'rol': self.rol,
+            'rol_id': self.rol_id,
+            'rol': self.rol_nombre,
             'two_factor_enabled': self.two_factor_enabled,
             'fecha_registro': self.fecha_registro.isoformat() if self.fecha_registro else None
         }
