@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required
 from utils.decorators import admin_required
-from models import db, Pedido, DetallePedido, Producto, Usuario, InventarioMovimiento
+from models import db, Pedido, DetallePedido, Producto, Usuario, InventarioMovimiento, CatalogoEstadoPedido, CatalogoRolUsuario
 from sqlalchemy import func, extract
 from datetime import datetime
 import io
@@ -81,7 +81,8 @@ def ventas_totales():
         hasta = _parse_fecha(request.args.get('hasta'))
         excel = request.args.get('excel') == '1' or request.args.get('formato') == 'excel'
 
-        query = Pedido.query.filter(Pedido.estado != 'cancelado')
+        estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
+        query = Pedido.query.filter(Pedido.estado_id != estado_cancelado.id)
         if desde:
             query = query.filter(Pedido.fecha_pedido >= desde)
         if hasta:
@@ -122,12 +123,13 @@ def ventas_por_mes():
     try:
         excel = request.args.get('excel') == '1' or request.args.get('formato') == 'excel'
         # Agrupar por año-mes
+        estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
         resultados = db.session.query(
             extract('year', Pedido.fecha_pedido).label('anio'),
             extract('month', Pedido.fecha_pedido).label('mes'),
             func.count(Pedido.id).label('pedidos'),
             func.sum(Pedido.monto_total).label('total')
-        ).filter(Pedido.estado != 'cancelado').group_by('anio', 'mes').order_by('anio', 'mes').all()
+        ).filter(Pedido.estado_id != estado_cancelado.id).group_by('anio', 'mes').order_by('anio', 'mes').all()
 
         data = [{'anio': int(r.anio), 'mes': int(r.mes), 'pedidos': r.pedidos, 'total': float(r.total or 0)} for r in resultados]
 
@@ -155,7 +157,8 @@ def ventas_por_periodo():
         if not desde or not hasta:
             return jsonify({'error': 'Formato inválido', 'message': 'Use YYYY-MM-DD'}), 400
         hasta_fin = hasta.replace(hour=23, minute=59, second=59)
-        pedidos = Pedido.query.filter(Pedido.fecha_pedido >= desde, Pedido.fecha_pedido <= hasta_fin, Pedido.estado != 'cancelado').order_by(Pedido.fecha_pedido.desc()).all()
+        estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
+        pedidos = Pedido.query.filter(Pedido.fecha_pedido >= desde, Pedido.fecha_pedido <= hasta_fin, Pedido.estado_id != estado_cancelado.id).order_by(Pedido.fecha_pedido.desc()).all()
         total = sum(float(p.monto_total) for p in pedidos)
 
         if excel:
@@ -163,7 +166,7 @@ def ventas_por_periodo():
             rows = []
             for p in pedidos:
                 nombre = p.usuario.nombre if p.usuario else (p.email_contacto or 'Invitado')
-                rows.append([p.id, p.fecha_pedido.strftime('%Y-%m-%d'), nombre, p.estado, float(p.monto_total)])
+                rows.append([p.id, p.fecha_pedido.strftime('%Y-%m-%d'), nombre, p.estado_nombre, float(p.monto_total)])
             rows.append([])
             rows.append(['Total', '', '', '', total])
             subtitulo = f'Periodo: {desde_str} al {hasta_str}'
@@ -192,7 +195,8 @@ def ganancias():
         excel = request.args.get('excel') == '1' or request.args.get('formato') == 'excel'
 
         # Ventas (ingresos)
-        q_ventas = Pedido.query.filter(Pedido.estado != 'cancelado')
+        estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
+        q_ventas = Pedido.query.filter(Pedido.estado_id != estado_cancelado.id)
         if desde:
             q_ventas = q_ventas.filter(Pedido.fecha_pedido >= desde)
         if hasta:
@@ -247,6 +251,7 @@ def productos_mas_vendidos():
         hasta = _parse_fecha(request.args.get('hasta'))
         excel = request.args.get('excel') == '1' or request.args.get('formato') == 'excel'
 
+        estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
         q = db.session.query(
             Producto.id,
             Producto.nombre,
@@ -255,7 +260,7 @@ def productos_mas_vendidos():
             func.sum(DetallePedido.subtotal).label('total_ingresos')
         ).join(DetallePedido, DetallePedido.producto_id == Producto.id)\
          .join(Pedido, Pedido.id == DetallePedido.pedido_id)\
-         .filter(Pedido.estado != 'cancelado')
+         .filter(Pedido.estado_id != estado_cancelado.id)
 
         if desde:
             q = q.filter(Pedido.fecha_pedido >= desde)
@@ -296,6 +301,8 @@ def clientes_top():
         hasta = _parse_fecha(request.args.get('hasta'))
         excel = request.args.get('excel') == '1' or request.args.get('formato') == 'excel'
 
+        rol_cliente = CatalogoRolUsuario.por_nombre('cliente')
+        estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
         q = db.session.query(
             Usuario.id,
             Usuario.nombre,
@@ -303,7 +310,7 @@ def clientes_top():
             func.count(Pedido.id).label('total_pedidos'),
             func.sum(Pedido.monto_total).label('total_gastado')
         ).join(Pedido, Pedido.usuario_id == Usuario.id)\
-         .filter(Usuario.rol == 'cliente').filter(Pedido.estado != 'cancelado')
+         .filter(Usuario.rol_id == rol_cliente.id).filter(Pedido.estado_id != estado_cancelado.id)
 
         if desde:
             q = q.filter(Pedido.fecha_pedido >= desde)

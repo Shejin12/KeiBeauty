@@ -8,7 +8,7 @@ class Pedido(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
     monto_total = db.Column(db.Numeric(10, 2), nullable=False)
-    estado = db.Column(db.String(20), default='pendiente', nullable=False)
+    estado_id = db.Column(db.Integer, db.ForeignKey('catalogo_estado_pedido.id'), nullable=False)
     direccion_envio = db.Column(db.Text, nullable=False)
     email_contacto = db.Column(db.String(150), nullable=True)
     telefono_contacto = db.Column(db.String(20), nullable=True)
@@ -17,14 +17,21 @@ class Pedido(db.Model):
     url_guia = db.Column(db.String(500), nullable=True)
 
     usuario = db.relationship('Usuario', back_populates='pedidos')
+    estado = db.relationship('CatalogoEstadoPedido', backref='pedidos')
     detalles = db.relationship('DetallePedido', back_populates='pedido', cascade='all, delete-orphan')
+
+    @property
+    def estado_nombre(self):
+        """Nombre del estado (texto) para compatibilidad con el frontend."""
+        return self.estado.nombre if self.estado else None
 
     def to_dict(self):
         return {
             'id': self.id,
             'usuario_id': self.usuario_id,
             'monto_total': float(self.monto_total),
-            'estado': self.estado,
+            'estado_id': self.estado_id,
+            'estado': self.estado_nombre,
             'direccion_envio': self.direccion_envio,
             'email_contacto': self.email_contacto,
             'telefono_contacto': self.telefono_contacto,

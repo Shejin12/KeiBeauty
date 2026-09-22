@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity, get_jwt
-from models import db, Usuario, RecuperacionContrasena, Codigo2FA
+from models import db, Usuario, RecuperacionContrasena, Codigo2FA, CatalogoRolUsuario
 from utils.email import email_service
 from utils.decorators import solo_en_autenticacion, rechazar_en_autenticacion
 from datetime import timedelta
@@ -26,12 +26,16 @@ def registro():
     if Usuario.query.filter_by(email=email).first():
         return jsonify({'error': 'El email ya está registrado.'}), 400
 
+    rol_cliente = CatalogoRolUsuario.por_nombre('cliente')
+    if not rol_cliente:
+        return jsonify({'error': 'Catálogo de roles no inicializado.'}), 500
+
     usuario = Usuario(
         nombre=nombre,
         email=email,
         telefono=telefono,
         direccion_envio=direccion_envio,
-        rol='cliente'
+        rol=rol_cliente
     )
     usuario.set_password(password)
 
