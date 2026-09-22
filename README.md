@@ -496,3 +496,72 @@ Tienda: `https://<url>/` · Config API:
 | Seed "ya existen" | `docker compose down -v` para reseedear (borra la BD) |
 | Puerto 5000 ocupado | Cambiar mapeo o detener el proceso local |
 | `permission denied` Docker (Linux) | `sudo usermod -aG docker $USER` y reiniciar sesión |
+
+## Reconstruir imágenes Docker
+
+Si modificaste dependencias (`requirements.txt`), el `Dockerfile` o el
+`docker-compose.yml`, tenés que reconstruir las imágenes. La diferencia clave:
+reconstruir **todo** borra la base de datos, reconstruir **solo el backend**
+la conserva.
+
+### Reconstruir todo desde cero
+
+```bash
+cd KeiBeauty
+
+# Detener contenedores y borrar volúmenes (⚠️ borra la BD)
+docker compose down -v
+
+# Reconstruir imágenes sin caché
+docker compose build --no-cache
+
+# Levantar
+docker compose up -d
+
+# Aplicar migraciones
+docker compose exec api flask db upgrade
+
+# Correr seed
+docker compose exec api python seed.py
+```
+
+> ⚠️ **Advertencia:** `docker compose down -v` elimina el volumen
+> `postgres_data`, es decir, **borra por completo la base de datos**
+> (`keibeauty_db`). Usalo solo si querés empezar desde cero (luego hay que
+> aplicar migraciones y correr el seed).
+
+### Reconstruir solo el backend (sin borrar la BD)
+
+```bash
+docker compose build --no-cache api
+docker compose up -d api
+```
+
+Este flujo conserva el volumen de PostgreSQL, así que los datos quedan
+intactos. Después verificá que la API aplicó las migraciones al arrancar
+(el comando de arranque ya ejecuta `flask db upgrade`).
+
+### Ver logs en vivo
+
+```bash
+docker compose logs -f api
+docker compose logs -f db
+```
+
+### Limpiar imágenes huérfanas
+
+```bash
+docker image prune -a
+docker volume prune
+```
+
+> ⚠️ `docker volume prune` borra **todos** los volúmenes no usados, incluida
+> la BD si el contenedor está abajo. Revisá con `docker volume ls` antes.
+
+### Cómo verificar que se reconstruyó bien
+
+```bash
+docker compose ps                          # api y db en estado Up/healthy
+curl -i http://localhost:5000/health       # 200 {"status":"ok"}
+docker compose exec api flask db current   # última migración aplicada
+```
