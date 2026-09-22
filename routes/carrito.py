@@ -116,7 +116,7 @@ def add_item():
         if not producto:
             return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {producto_id}'}), 404
         
-        if producto.estado != 'activo':
+        if producto.estado_nombre != 'activo':
             return jsonify({'error': 'Producto no disponible', 'message': 'El producto no está disponible para compra'}), 400
         
         if cantidad > producto.stock:

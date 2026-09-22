@@ -1,5 +1,20 @@
 from app import create_app
-from models import db, Usuario, Marca, Categoria, Producto
+from models import (
+    db, Usuario, Marca, Categoria, Producto,
+    CatalogoRolUsuario, CatalogoEstadoProducto, CatalogoEstadoPedido,
+    CatalogoTipoNotificacion,
+)
+
+
+def obtener_o_crear_catalogo(modelo, nombre, descripcion=''):
+    """Busca un valor del catálogo por nombre o lo crea si no existe."""
+    existente = modelo.query.filter_by(nombre=nombre).first()
+    if existente:
+        return existente
+    nuevo = modelo(nombre=nombre, descripcion=descripcion, activo=True)
+    db.session.add(nuevo)
+    db.session.flush()
+    return nuevo
 
 
 def seed_data():
@@ -7,6 +22,28 @@ def seed_data():
 
     with app.app_context():
         db.create_all()
+
+        # 1. Poblar tablas catálogo (idempotente)
+        rol_admin = obtener_o_crear_catalogo(CatalogoRolUsuario, 'admin', 'Administrador de la tienda')
+        rol_cliente = obtener_o_crear_catalogo(CatalogoRolUsuario, 'cliente', 'Cliente de la tienda')
+        estado_activo = obtener_o_crear_catalogo(CatalogoEstadoProducto, 'activo', 'Producto visible y disponible')
+        obtener_o_crear_catalogo(CatalogoEstadoProducto, 'inactivo', 'Producto oculto del catálogo')
+        obtener_o_crear_catalogo(CatalogoEstadoProducto, 'agotado', 'Producto sin stock')
+        for nombre, descripcion in [
+            ('pendiente', 'Pedido creado, pago por confirmar'),
+            ('confirmado', 'Pedido confirmado por la tienda'),
+            ('enviado', 'Pedido en camino'),
+            ('entregado', 'Pedido recibido por el cliente'),
+            ('cancelado', 'Pedido cancelado'),
+        ]:
+            obtener_o_crear_catalogo(CatalogoEstadoPedido, nombre, descripcion)
+        for nombre, descripcion in [
+            ('pedido_estado', 'Cambio de estado de un pedido'),
+            ('pedido_guia', 'Guía de envío agregada al pedido'),
+            ('producto_stock', 'Producto con stock disponible'),
+        ]:
+            obtener_o_crear_catalogo(CatalogoTipoNotificacion, nombre, descripcion)
+        db.session.commit()
 
         if Usuario.query.filter_by(email='admin@keibeauty.com').first():
             print('Datos de prueba ya existen.')
@@ -17,7 +54,7 @@ def seed_data():
             email='admin@keibeauty.com',
             telefono='+34600000000',
             direccion_envio='Calle Principal 123, Madrid',
-            rol='admin'
+            rol=rol_admin
         )
         admin.set_password('admin123')
         db.session.add(admin)
@@ -68,7 +105,7 @@ def seed_data():
                 precio=14.90,
                 stock=50,
                 imagen_url='https://i.pinimg.com/736x/aa/0c/da/aa0cdacd84f6bd2e197a0ad37adb088c.jpg',
-                estado='activo',
+                estado=estado_activo,
                 marca_id=marcas[0].id,
                 categoria_id=categorias[0].id
             ),
@@ -80,7 +117,7 @@ def seed_data():
                 precio=22.50,
                 stock=40,
                 imagen_url='https://i.pinimg.com/236x/76/e8/53/76e853ec56d94bb2c658298a08103c49.jpg',
-                estado='activo',
+                estado=estado_activo,
                 marca_id=marcas[0].id,
                 categoria_id=categorias[2].id
             ),
@@ -92,7 +129,7 @@ def seed_data():
                 precio=28.00,
                 stock=30,
                 imagen_url='https://i1.sndcdn.com/artworks-V5z7Q4BedhgO8DQ5-eAXCNQ-t500x500.png',
-                estado='activo',
+                estado=estado_activo,
                 marca_id=marcas[1].id,
                 categoria_id=categorias[1].id
             ),
@@ -104,7 +141,7 @@ def seed_data():
                 precio=19.90,
                 stock=35,
                 imagen_url='https://i.pinimg.com/originals/7f/b5/13/7fb5138b4ba0a1520e6edae5f74ca923.jpg',
-                estado='activo',
+                estado=estado_activo,
                 marca_id=marcas[1].id,
                 categoria_id=categorias[2].id
             ),
@@ -116,7 +153,7 @@ def seed_data():
                 precio=18.50,
                 stock=45,
                 imagen_url='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSpq4itFNV14WFJeuWpB3k11mUZ6ZRcLSlFGtHgb6A97w&s',
-                estado='activo',
+                estado=estado_activo,
                 marca_id=marcas[2].id,
                 categoria_id=categorias[2].id
             )

@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
 from utils.decorators import admin_required, rechazar_en_autenticacion
 from utils.email import email_service
-from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito, Notificacion, ProductoAlerta
+from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito, Notificacion, ProductoAlerta, CatalogoEstadoPedido, CatalogoEstadoProducto, CatalogoTipoNotificacion
 
 try:
     from imagekitio import ImageKit
@@ -99,7 +99,7 @@ def crear_pedido():
                         return jsonify({'error': 'Producto requerido', 'message': 'Cada item debe tener producto_id'}), 400
                     
                     producto = db.session.get(Producto, producto_id)
-                    if not producto or producto.estado != 'activo':
+                    if not producto or producto.estado_nombre != 'activo':
                         return jsonify({'error': 'Producto no disponible', 'message': f'El producto {producto_id} no está disponible'}), 400
                     
                     if cantidad > producto.stock:
@@ -120,7 +120,7 @@ def crear_pedido():
                 # Usar items del carrito de invitado
                 for detalle_carrito in carrito.detalles:
                     producto = detalle_carrito.producto
-                    if not producto or producto.estado != 'activo':
+                    if not producto or producto.estado_nombre != 'activo':
                         return jsonify({'error': 'Producto no disponible', 'message': f'El producto {detalle_carrito.producto_id} ya no está disponible'}), 400
                     
                     if detalle_carrito.cantidad > producto.stock:
@@ -144,7 +144,7 @@ def crear_pedido():
             
             for detalle_carrito in carrito.detalles:
                 producto = detalle_carrito.producto
-                if not producto or producto.estado != 'activo':
+                if not producto or producto.estado_nombre != 'activo':
                     return jsonify({'error': 'Producto no disponible', 'message': f'El producto {detalle_carrito.producto_id} ya no está disponible'}), 400
                 
                 if detalle_carrito.cantidad > producto.stock:
@@ -163,10 +163,15 @@ def crear_pedido():
         
         # Crear pedido y detalles en transacción
         try:
+            estado_pendiente = CatalogoEstadoPedido.por_nombre('pendiente')
+            estado_agotado = CatalogoEstadoProducto.por_nombre('agotado')
+            estado_activo = CatalogoEstadoProducto.por_nombre('activo')
+            if not estado_pendiente or not estado_agotado or not estado_activo:
+                return jsonify({'error': 'Catálogos no inicializados', 'message': 'Faltan valores en los catálogos de estados'}), 500
             pedido = Pedido(
                 usuario_id=usuario_id,
                 monto_total=monto_total,
-                estado='pendiente',
+                estado=estado_pendiente,
                 direccion_envio=direccion_envio.strip(),
                 email_contacto=email_contacto,
                 telefono_contacto=telefono_contacto
@@ -190,9 +195,9 @@ def crear_pedido():
                 producto.stock -= item['cantidad']
                 if producto.stock <= 0:
                     producto.stock = 0
-                    producto.estado = 'agotado'
-                elif producto.estado == 'agotado' and producto.stock > 0:
-                    producto.estado = 'activo'
+                    producto.estado = estado_agotado
+                elif producto.estado_nombre == 'agotado' and producto.stock > 0:
+                    producto.estado = estado_activo
             
             # Si es usuario autenticado, vaciar carrito
             if not es_invitado and carrito:
@@ -234,7 +239,7 @@ def listar_pedidos():
     try:
         usuario_id = int(get_jwt_identity())
         usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, usuario_id)
-        es_admin = usuario and usuario.rol == 'admin'
+        es_admin = usuario and usuario.rol_nombre == 'admin'
         
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
@@ -246,7 +251,9 @@ def listar_pedidos():
         
         estado_filtro = request.args.get('estado')
         if estado_filtro:
-            query = query.filter(Pedido.estado == estado_filtro)
+            estado_catalogo = CatalogoEstadoPedido.por_nombre(estado_filtro)
+            if estado_catalogo:
+                query = query.filter(Pedido.estado_id == estado_catalogo.id)
         
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         
@@ -286,7 +293,7 @@ def obtener_pedido(pedido_id):
             
             usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, usuario_id)
             # Solo el dueño o admin puede ver el pedido
-            if pedido.usuario_id != usuario_id and not (usuario and usuario.rol == 'admin'):
+            if pedido.usuario_id != usuario_id and not (usuario and usuario.rol_nombre == 'admin'):
                 return jsonify({'error': 'Acceso denegado', 'message': 'No tienes permiso para ver este pedido'}), 403
         else:
             # Es pedido de invitado - permitir acceso con guest_token o email_contacto
@@ -332,21 +339,26 @@ def cambiar_estado_pedido(pedido_id):
         estados_validos = ['pendiente', 'confirmado', 'enviado', 'entregado', 'cancelado']
         if nuevo_estado not in estados_validos:
             return jsonify({'error': 'Estado inválido', 'message': f'Estados válidos: {", ".join(estados_validos)}'}), 400
-        
+
+        estado_catalogo = CatalogoEstadoPedido.por_nombre(nuevo_estado)
+        if not estado_catalogo:
+            return jsonify({'error': 'Estado inválido', 'message': f'Estados válidos: {", ".join(estados_validos)}'}), 400
+
         pedido = db.session.get(Pedido, pedido_id)
         if not pedido:
             return jsonify({'error': 'Pedido no encontrado', 'message': f'No existe pedido con id {pedido_id}'}), 404
-        
-        pedido.estado = nuevo_estado
+
+        pedido.estado = estado_catalogo
         pedido.fecha_actualizacion = db.func.now()
         db.session.commit()
 
         # Crear notificación y enviar correo para el cliente
         try:
             if pedido.usuario_id:
+                tipo_estado = CatalogoTipoNotificacion.por_nombre('pedido_estado')
                 titulo = f"Tu pedido #{pedido.id} está {nuevo_estado}"
                 mensaje = f"El estado de tu pedido #{pedido.id} cambió a {nuevo_estado.upper()}. Revisa los detalles en Mis Pedidos."
-                notif = Notificacion(usuario_id=pedido.usuario_id, tipo='pedido_estado', titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'estado': nuevo_estado})
+                notif = Notificacion(usuario_id=pedido.usuario_id, tipo=tipo_estado, titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'estado': nuevo_estado})
                 db.session.add(notif)
                 db.session.commit()
                 # Enviar correo también
@@ -413,9 +425,10 @@ def subir_guia(pedido_id):
         # Notificación y correo guía subida
         try:
             if pedido.usuario_id:
+                tipo_guia = CatalogoTipoNotificacion.por_nombre('pedido_guia')
                 titulo = f"Guía agregada a tu pedido #{pedido.id}"
                 mensaje = f"Se agregó la guía de envío a tu pedido #{pedido.id}. Ya puedes rastrear tu entrega en Mis Pedidos."
-                notif = Notificacion(usuario_id=pedido.usuario_id, tipo='pedido_guia', titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'url_guia': pedido.url_guia})
+                notif = Notificacion(usuario_id=pedido.usuario_id, tipo=tipo_guia, titulo=titulo, mensaje=mensaje, datos={'pedido_id': pedido.id, 'url_guia': pedido.url_guia})
                 db.session.add(notif)
                 db.session.commit()
                 try:

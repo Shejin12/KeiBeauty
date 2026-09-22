@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from utils.decorators import admin_required
-from models import db, Categoria, Producto
+from models import db, Categoria, Producto, CatalogoEstadoProducto
 
 categorias_bp = Blueprint('categorias', __name__, url_prefix='/api/categorias')
 
@@ -101,7 +101,9 @@ def eliminar_categoria(categoria_id):
         if not categoria:
             return jsonify({'error': 'Categoría no encontrada', 'message': f'No existe categoría con id {categoria_id}'}), 404
 
-        productos_asociados = Producto.query.filter_by(categoria_id=categoria_id, estado='activo').count()
+        estado_activo = CatalogoEstadoProducto.por_nombre('activo')
+        estado_activo_id = estado_activo.id if estado_activo else None
+        productos_asociados = Producto.query.filter_by(categoria_id=categoria_id, estado_id=estado_activo_id).count()
         if productos_asociados > 0:
             return jsonify({
                 'error': 'Categoría con productos asociados',

@@ -14,13 +14,14 @@ class Producto(db.Model):
     precio = db.Column(db.Numeric(10, 2), nullable=False)
     stock = db.Column(db.Integer, default=0, nullable=False)
     imagen_url = db.Column(db.String(255))
-    estado = db.Column(db.String(20), default='activo', nullable=False)
+    estado_id = db.Column(db.Integer, db.ForeignKey('catalogo_estado_producto.id'), nullable=False)
     marca_id = db.Column(db.Integer, db.ForeignKey('marcas.id'), nullable=False)
     categoria_id = db.Column(db.Integer, db.ForeignKey('categorias.id'), nullable=False)
     fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     marca = db.relationship('Marca', back_populates='productos')
     categoria = db.relationship('Categoria', back_populates='productos')
+    estado = db.relationship('CatalogoEstadoProducto', backref='productos')
     detalle_carrito = db.relationship('DetalleCarrito', back_populates='producto', cascade='all, delete-orphan')
     detalle_pedidos = db.relationship('DetallePedido', back_populates='producto', cascade='all, delete-orphan')
     resenas = db.relationship('Resena', back_populates='producto', cascade='all, delete-orphan')
@@ -34,6 +35,11 @@ class Producto(db.Model):
                     return img.imagen_url
             return self.imagenes[0].imagen_url
         return self.imagen_url
+
+    @property
+    def estado_nombre(self):
+        """Nombre del estado (texto) para compatibilidad con el frontend."""
+        return self.estado.nombre if self.estado else None
 
     def to_dict(self):
         # Ordenar imágenes: principal primero
@@ -51,7 +57,8 @@ class Producto(db.Model):
             'stock': self.stock,
             'imagen_url': self._imagen_principal_url(),
             'imagenes': [img.to_dict() for img in imagenes_ordenadas],
-            'estado': self.estado,
+            'estado_id': self.estado_id,
+            'estado': self.estado_nombre,
             'marca_id': self.marca_id,
             'categoria_id': self.categoria_id,
             'marca_nombre': self.marca.nombre if self.marca else None,

@@ -13,6 +13,12 @@ from models.inventario_movimiento import InventarioMovimiento
 from models.producto_imagen import ProductoImagen
 from models.notificacion import Notificacion
 from models.producto_alerta import ProductoAlerta
+from models.catalogos import (
+    CatalogoEstadoPedido,
+    CatalogoTipoNotificacion,
+    CatalogoRolUsuario,
+    CatalogoEstadoProducto,
+)
 
 __all__ = [
     'db',
@@ -31,5 +37,9 @@ __all__ = [
     'InventarioMovimiento',
     'ProductoImagen',
     'Notificacion',
-    'ProductoAlerta'
+    'ProductoAlerta',
+    'CatalogoEstadoPedido',
+    'CatalogoTipoNotificacion',
+    'CatalogoRolUsuario',
+    'CatalogoEstadoProducto'
 ]
