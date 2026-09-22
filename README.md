@@ -202,19 +202,31 @@ Base URL local: `http://localhost:5000`. Rutas JSON bajo `/api/...`. Auth:
 `direccion_envio`; opcional: `telefono`):
 
 ```json
-{ "nombre": "María López", "email": "maria@ejemplo.com", "password": "secreta123",
-  "telefono": "50255556666", "direccion_envio": "Zona 1, Xela" }
+{ "nombre": "María López", 
+  "email": "maria@ejemplo.com", 
+  "password": "secreta123",
+  "telefono": "50255556666", 
+  "direccion_envio": "Zona 1, Xela" 
+}
 ```
 
 Response `201`:
 
 ```json
 { "mensaje": "Usuario registrado exitosamente.",
-  "usuario": { "id": 2, "nombre": "María López", "email": "maria@ejemplo.com",
-    "telefono": "50255556666", "direccion_envio": "Zona 1, Xela",
-    "rol": "cliente", "two_factor_enabled": true,
-    "fecha_registro": "2026-09-01T10:00:00" },
-  "access_token": "<jwt-24h>", "refresh_token": "<jwt-30d>" }
+  "usuario": { 
+                "id": 2, 
+                "nombre": "María López", 
+                "email": "maria@ejemplo.com",
+                "telefono": "50255556666", 
+                "direccion_envio": "Zona 1, Xela",
+                "rol": "cliente", 
+                "two_factor_enabled": true,
+                "fecha_registro": "2026-09-01T10:00:00" 
+              },
+  "access_token": "<jwt-24h>", 
+  "refresh_token": "<jwt-30d>" 
+}
 ```
 
 Códigos: `201` · `400` campos faltantes o email duplicado.
@@ -224,9 +236,13 @@ Sin 2FA → `200` con la misma forma del registro (`"Login exitoso."`).
 Con 2FA → `200`:
 
 ```json
-{ "data": { "requiere_2fa": true, "email": "maria@ejemplo.com",
-    "token_temporal": "<jwt-10min>" },
-  "message": "Código enviado a tu correo" }
+{ "data": { 
+            "requiere_2fa": true, 
+            "email": "maria@ejemplo.com",
+            "token_temporal": "<jwt-10min>" 
+          },
+  "message": "Código enviado a tu correo" 
+}
 ```
 
 Códigos: `200` · `400` campos faltantes · `401` credenciales inválidas.
@@ -284,13 +300,24 @@ producto. Códigos: `201` · `400` · `404` marca/categoría · `401/403`.
 Objeto producto (`to_dict` + `es_favorito` opcional):
 
 ```json
-{ "id": 2, "nombre": "Advanced Snail 96...", "descripcion": "...",
-  "ingredientes_clave": "...", "tipo_piel": "Todo tipo de piel", "tamano": "100ml",
-  "precio": 22.5, "stock": 40, "imagen_url": "https://...",
+{ "id": 2, 
+  "nombre": "Advanced Snail 96...", 
+  "descripcion": "...",
+  "ingredientes_clave": "...", 
+  "tipo_piel": "Todo tipo de piel", 
+  "tamano": "100ml",
+  "precio": 22.5, 
+  "stock": 40, 
+  "imagen_url": "https://...",
   "imagenes": [{ "id": 1, "imagen_url": "https://...", "es_principal": true, "orden": 0 }],
-  "estado": "activo", "marca_id": 1, "marca_nombre": "COSRX",
-  "categoria_id": 3, "categoria_nombre": "Tratamiento",
-  "fecha_creacion": "2026-09-01T10:00:00", "es_favorito": true }
+  "estado": "activo", 
+  "marca_id": 1, 
+  "marca_nombre": "COSRX",
+  "categoria_id": 3, 
+  "categoria_nombre": "Tratamiento",
+  "fecha_creacion": "2026-09-01T10:00:00", 
+  "es_favorito": true 
+}
 ```
 
 **POST `/api/products/<id>/inventario`** (admin):
@@ -350,8 +377,11 @@ el stock se descuenta; si llega a 0 el producto pasa a `agotado`.
 Invitado:
 
 ```json
-{ "direccion_envio": "12 Av. Zona 3, Xela", "email_contacto": "invitado@ejemplo.com",
-  "telefono_contacto": "50255556666", "items": [{ "producto_id": 2, "cantidad": 1 }] }
+{ "direccion_envio": "12 Av. Zona 3, Xela", 
+  "email_contacto": "invitado@ejemplo.com",
+  "telefono_contacto": "50255556666", 
+  "items": [{ "producto_id": 2, "cantidad": 1 }] 
+}
 ```
 
 (`items` solo si el invitado no tiene carrito guest.) Response `201` con el pedido
@@ -424,19 +454,14 @@ Hidratación, Tratamiento) y 5 productos. El seed es mínimo (sin cliente de
 prueba ni pedidos): para verificación rica se crea un cliente y pedidos desde
 el frontend o la API.
 
-## Testing y CI
-
-El repositorio no incluye suite de tests automatizados ni workflows de CI
-(no existe `.github/` ni directorio `tests/`). La verificación se hace con
-`curl` a `/health` y `/api/products` más el flujo manual login → carrito →
-checkout.
 
 ## GitFlow
 
-Ramas: `main` (producción) · `develop` (integración) · `feature/*` ·
-`hotfix/*`. Rama `feature/*` desde `develop`, commits simples en español, merge
-con `--no-ff`, push de rama y `develop`, sin borrar ramas. Prohibido: rebase,
-force push, tocar `main`, borrar tags. En Windows: `git config core.autocrlf true`.
+Ramas: 
+- `main` (producción) · 
+- `develop` (integración) · 
+- `feature/*` (introduccion de funcionalidad)·
+- `hotfix/*`. (arreglo rapido de un error).
 
 ## Despliegue
 
@@ -484,7 +509,7 @@ Tienda: `https://<url>/` · Config API:
 - Sin SQL crudo en ningún endpoint: todo pasa por SQLAlchemy con parámetros
   enlazados; la búsqueda por nombre escapa los comodines LIKE (`%`, `_`).
 
-## Troubleshooting
+## Solución a posibles errores
 
 | Problema | Solución |
 |---|---|
@@ -509,7 +534,7 @@ la conserva.
 ```bash
 cd KeiBeauty
 
-# Detener contenedores y borrar volúmenes (⚠️ borra la BD)
+# Detener contenedores y borrar volúmenes (IMPORTANTE: borra la BD)
 docker compose down -v
 
 # Reconstruir imágenes sin caché
@@ -525,7 +550,7 @@ docker compose exec api flask db upgrade
 docker compose exec api python seed.py
 ```
 
-> ⚠️ **Advertencia:** `docker compose down -v` elimina el volumen
+> **Advertencia:** `docker compose down -v` elimina el volumen
 > `postgres_data`, es decir, **borra por completo la base de datos**
 > (`keibeauty_db`). Usalo solo si querés empezar desde cero (luego hay que
 > aplicar migraciones y correr el seed).
@@ -555,7 +580,7 @@ docker image prune -a
 docker volume prune
 ```
 
-> ⚠️ `docker volume prune` borra **todos** los volúmenes no usados, incluida
+> `docker volume prune` borra **todos** los volúmenes no usados, incluida
 > la BD si el contenedor está abajo. Revisá con `docker volume ls` antes.
 
 ### Cómo verificar que se reconstruyó bien
