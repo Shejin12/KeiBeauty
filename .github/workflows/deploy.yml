@@ -18,9 +18,9 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd /var/www/keibeauty-backend
+            cd /var/www/keibeauty-backend/KeiBeauty
             git pull origin main
-            source venv/bin/activate
+            source /var/www/keibeauty-backend/venv/bin/activate
             pip install -r requirements.txt
             sudo systemctl restart keibeauty
             sudo systemctl restart nginx
