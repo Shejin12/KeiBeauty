@@ -590,3 +590,5 @@ docker compose ps                          # api y db en estado Up/healthy
 curl -i http://localhost:5000/health       # 200 {"status":"ok"}
 docker compose exec api flask db current   # última migración aplicada
 ```
+
+--
