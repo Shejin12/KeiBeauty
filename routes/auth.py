@@ -24,7 +24,12 @@ def registro():
         return jsonify({'error': 'Campos obligatorios: nombre, email, password, direccion_envio.'}), 400
 
     if Usuario.query.filter_by(email=email).first():
-        return jsonify({'error': 'El email ya está registrado.'}), 400
+        # 409 (Conflict) para diferenciar "email duplicado" de otros errores de validación.
+        return jsonify({
+            'error': 'El email ya está registrado.',
+            'message': 'Ya existe una cuenta con este correo. Intenta iniciar sesión.',
+            'codigo': 'EMAIL_DUPLICADO'
+        }), 409
 
     rol_cliente = CatalogoRolUsuario.por_nombre('cliente')
     if not rol_cliente:
@@ -219,7 +224,7 @@ def activar_2fa():
     db.session.commit()
     
     return jsonify({
-        'data': {'two_factor_enabled': True},
+        'data': {'two_factor_enabled': True, 'usuario': usuario.to_dict()},
         'message': '2FA activado exitosamente'
     }), 200
 
@@ -255,7 +260,7 @@ def desactivar_2fa():
     db.session.commit()
     
     return jsonify({
-        'data': {'two_factor_enabled': False},
+        'data': {'two_factor_enabled': False, 'usuario': usuario.to_dict()},
         'message': '2FA desactivado exitosamente'
     }), 200
 
