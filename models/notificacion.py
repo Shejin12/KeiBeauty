@@ -1,5 +1,6 @@
 from models.db import db
 from datetime import datetime
+from sqlalchemy.orm import backref
 
 class Notificacion(db.Model):
     __tablename__ = 'notificaciones'
@@ -13,7 +14,13 @@ class Notificacion(db.Model):
     datos = db.Column(db.JSON, nullable=True)  # {pedido_id, producto_id, etc}
     fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
-    usuario = db.relationship('Usuario', backref='notificaciones')
+    # cascade 'all, delete-orphan': al eliminar el usuario se eliminan sus
+    # notificaciones (sin esto el ORM intenta poner usuario_id = NULL y
+    # revienta la restriccion NOT NULL).
+    usuario = db.relationship(
+        'Usuario',
+        backref=backref('notificaciones', cascade='all, delete-orphan')
+    )
     tipo = db.relationship('CatalogoTipoNotificacion', backref='notificaciones')
 
     @property

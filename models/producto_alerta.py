@@ -1,5 +1,6 @@
 from models.db import db
 from datetime import datetime
+from sqlalchemy.orm import backref
 
 class ProductoAlerta(db.Model):
     __tablename__ = 'producto_alertas'
@@ -11,7 +12,13 @@ class ProductoAlerta(db.Model):
     fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     producto = db.relationship('Producto', backref='alertas')
-    usuario = db.relationship('Usuario', backref='producto_alertas')
+    # cascade 'all, delete-orphan': al eliminar el usuario se eliminan sus
+    # alertas (sin esto el ORM intenta poner usuario_id = NULL y revienta
+    # la restriccion NOT NULL).
+    usuario = db.relationship(
+        'Usuario',
+        backref=backref('producto_alertas', cascade='all, delete-orphan')
+    )
 
     __table_args__ = (db.UniqueConstraint('producto_id', 'usuario_id', name='uq_producto_usuario_alerta'),)
 
