@@ -151,6 +151,7 @@ KeiBeauty/
 │   ├── resena.py           # Reseña (calificacion 1-5, comentario)
 │   ├── notificacion.py     # Notificación in-app (tipo, titulo, mensaje, datos JSON)
 │   ├── usuario_direccion.py # Direcciones de envío y teléfonos del usuario
+│   ├── configuracion_tienda.py # Configuración clave/valor de la tienda
 │   └── inventario_movimiento.py # Movimientos entrada/salida (+ costo_unitario)
 ├── routes/                 # Blueprints (un archivo por recurso)
 │   ├── auth.py             # /api/auth/*
@@ -163,6 +164,7 @@ KeiBeauty/
 │   ├── resenas.py          # /api/resenas/*
 │   ├── notificaciones.py   # /api/notificaciones/*
 │   ├── usuario.py          # /api/usuario/* (direcciones y teléfonos guardados)
+│   ├── configuracion.py    # /api/configuracion/* (ajustes de la tienda)
 │   └── reportes.py         # /api/reportes/* (admin, JSON o Excel)
 └── utils/
     ├── decorators.py       # @admin_required, @solo_en_autenticacion, etc.
@@ -465,6 +467,31 @@ Solo puede haber una dirección y un teléfono **principal** por usuario. Al
 cambiar la principal se actualizan las columnas de compatibilidad
 `usuarios.direccion_envio` y `usuarios.telefono`. `GET /api/auth/perfil`
 incluye las listas `direcciones` y `telefonos`.
+
+### Configuración de la tienda — `/api/configuracion`
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/api/configuracion` | JWT-Admin | Todas las claves de configuración |
+| PUT | `/api/configuracion` | JWT-Admin | Actualiza una clave (`{clave, valor}`) |
+| GET | `/api/configuracion/envio` | — | Política de envío (pública, solo lectura) |
+
+**PUT**: `{"clave": "costo_envio", "valor": "35.00"}` → `200` · `400` valor no
+numérico o negativo · `404` clave inexistente. Solo se pueden modificar claves
+que ya existen.
+
+**Claves disponibles**
+
+| Clave | Valor inicial | Descripción |
+|---|---|---|
+| `costo_envio` | `30.00` | Costo fijo de envío en quetzales |
+| `minimo_envio_gratis` | `200.00` | Subtotal mínimo para obtener envío gratis (0 desactiva el envío gratis) |
+
+En `POST /api/pedidos` el total se calcula como
+`monto_total = subtotal_productos + costo_envio`. Si
+`subtotal_productos >= minimo_envio_gratis` el envío es gratis (`costo_envio = 0`).
+La respuesta incluye el bloque `desglose` con `subtotal_productos`, `costo_envio`,
+`monto_total`, `envio_gratis` y `minimo_envio_gratis`.
 
 ### Favoritos — `/api/favoritos` (JWT)
 

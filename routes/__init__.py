@@ -9,5 +9,6 @@ from routes.resenas import resenas_bp
 from routes.notificaciones import notificaciones_bp
 from routes.reportes import reportes_bp
 from routes.usuario import usuario_bp
+from routes.configuracion import configuracion_bp
 
-__all__ = ['auth_bp', 'products_bp', 'categorias_bp', 'carrito_bp', 'pedidos_bp', 'favoritos_bp', 'marcas_bp', 'resenas_bp', 'notificaciones_bp', 'reportes_bp', 'usuario_bp']
+__all__ = ['auth_bp', 'products_bp', 'categorias_bp', 'carrito_bp', 'pedidos_bp', 'favoritos_bp', 'marcas_bp', 'resenas_bp', 'notificaciones_bp', 'reportes_bp', 'usuario_bp', 'configuracion_bp']

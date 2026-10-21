@@ -8,6 +8,8 @@ class Pedido(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
     monto_total = db.Column(db.Numeric(10, 2), nullable=False)
+    subtotal_productos = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+    costo_envio = db.Column(db.Numeric(10, 2), default=0, nullable=False)
     estado_id = db.Column(db.Integer, db.ForeignKey('catalogo_estado_pedido.id'), nullable=False)
     direccion_envio = db.Column(db.Text, nullable=False)
     email_contacto = db.Column(db.String(150), nullable=True)
@@ -31,6 +33,8 @@ class Pedido(db.Model):
             'id': self.id,
             'usuario_id': self.usuario_id,
             'monto_total': float(self.monto_total),
+            'subtotal_productos': float(self.subtotal_productos or 0),
+            'costo_envio': float(self.costo_envio or 0),
             'estado_id': self.estado_id,
             'estado': self.estado_nombre,
             'direccion_envio': self.direccion_envio,
