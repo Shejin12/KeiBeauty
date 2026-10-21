@@ -1,6 +1,6 @@
 from app import create_app
 from models import (
-    db, Usuario, Marca, Categoria, Producto,
+    db, Usuario, Marca, Categoria, Producto, ConfiguracionTienda,
     CatalogoRolUsuario, CatalogoEstadoProducto, CatalogoEstadoPedido,
     CatalogoTipoNotificacion,
 )
@@ -43,6 +43,16 @@ def seed_data():
             ('producto_stock', 'Producto con stock disponible'),
         ]:
             obtener_o_crear_catalogo(CatalogoTipoNotificacion, nombre, descripcion)
+        db.session.commit()
+
+        # 2. Configuracion de la tienda (idempotente: no pisa valores ya
+        #    editados desde el panel de administracion)
+        for clave, valor, descripcion in [
+            ('costo_envio', '30.00', 'Costo fijo de envio en quetzales'),
+            ('minimo_envio_gratis', '200.00', 'Subtotal minimo (en quetzales) para obtener envio gratis'),
+        ]:
+            if not ConfiguracionTienda.query.filter_by(clave=clave).first():
+                ConfiguracionTienda.establecer(clave, valor, descripcion)
         db.session.commit()
 
         if Usuario.query.filter_by(email='admin@keibeauty.com').first():
@@ -163,6 +173,7 @@ def seed_data():
         db.session.commit()
         print('Datos de prueba creados exitosamente:')
         print(f'  - 1 usuario admin (admin@keibeauty.com / admin123)')
+        print('  - configuracion de envio (costo_envio, minimo_envio_gratis)')
         print(f'  - {len(marcas)} marcas')
         print(f'  - {len(categorias)} categorias')
         print(f'  - {len(productos)} productos')

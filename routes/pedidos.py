@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
 from utils.decorators import admin_required, rechazar_en_autenticacion
 from utils.email import email_service
-from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito, Notificacion, ProductoAlerta, CatalogoEstadoPedido, CatalogoEstadoProducto, CatalogoTipoNotificacion, Usuario, UsuarioDireccion, UsuarioTelefono
+from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito, Notificacion, ProductoAlerta, CatalogoEstadoPedido, CatalogoEstadoProducto, CatalogoTipoNotificacion, Usuario, UsuarioDireccion, UsuarioTelefono, ConfiguracionTienda
 
 try:
     from imagekitio import ImageKit
@@ -133,7 +133,7 @@ def crear_pedido():
         
         # Obtener items del pedido
         items_pedido = []
-        monto_total = 0
+        subtotal_productos = 0
         carrito = None
         
         if es_invitado:
@@ -163,7 +163,7 @@ def crear_pedido():
                     
                     precio_unitario = float(producto.precio)
                     subtotal = precio_unitario * cantidad
-                    monto_total += subtotal
+                    subtotal_productos += subtotal
                     
                     items_pedido.append({
                         'producto_id': producto.id,
@@ -183,7 +183,7 @@ def crear_pedido():
                         return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
                     
                     subtotal = float(producto.precio) * detalle_carrito.cantidad
-                    monto_total += subtotal
+                    subtotal_productos += subtotal
                     
                     items_pedido.append({
                         'producto_id': producto.id,
@@ -207,7 +207,7 @@ def crear_pedido():
                     return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
                 
                 subtotal = float(producto.precio) * detalle_carrito.cantidad
-                monto_total += subtotal
+                subtotal_productos += subtotal
                 
                 items_pedido.append({
                     'producto_id': producto.id,
@@ -224,9 +224,18 @@ def crear_pedido():
             estado_activo = CatalogoEstadoProducto.por_nombre('activo')
             if not estado_pendiente or not estado_agotado or not estado_activo:
                 return jsonify({'error': 'Catálogos no inicializados', 'message': 'Faltan valores en los catálogos de estados'}), 500
+            # Politica de envio: costo fijo, gratis a partir del subtotal minimo.
+            costo_envio_config = ConfiguracionTienda.obtener_numero('costo_envio', 0.0)
+            minimo_envio_gratis = ConfiguracionTienda.obtener_numero('minimo_envio_gratis', 0.0)
+            envio_gratis = minimo_envio_gratis > 0 and subtotal_productos >= minimo_envio_gratis
+            costo_envio = 0.0 if envio_gratis else costo_envio_config
+            monto_total = subtotal_productos + costo_envio
+
             pedido = Pedido(
                 usuario_id=usuario_id,
                 monto_total=monto_total,
+                subtotal_productos=subtotal_productos,
+                costo_envio=costo_envio,
                 estado=estado_pendiente,
                 direccion_envio=direccion_envio.strip(),
                 email_contacto=email_contacto,
@@ -302,6 +311,13 @@ def crear_pedido():
             
             return jsonify({
                 'data': pedido.to_dict(),
+                'desglose': {
+                    'subtotal_productos': round(float(subtotal_productos), 2),
+                    'costo_envio': round(float(costo_envio), 2),
+                    'monto_total': round(float(monto_total), 2),
+                    'envio_gratis': envio_gratis,
+                    'minimo_envio_gratis': minimo_envio_gratis
+                },
                 'message': 'Pedido creado exitosamente.'
             }), 201
             
