@@ -189,11 +189,13 @@ Base URL local: `http://localhost:5000`. Rutas JSON bajo `/api/...`. Auth:
 | POST | `/api/auth/verificar-2fa` | JWT-temporal | Valida código de 6 dígitos, devuelve tokens reales |
 | POST | `/api/auth/reenviar-codigo-2fa` | JWT-temporal | Reenvía código (rate limit 60 s) |
 | POST | `/api/auth/cancelar-login` | JWT-temporal | Invalida códigos pendientes del login en curso |
-| POST | `/api/auth/activar-2fa` | JWT | Activa 2FA del usuario autenticado |
-| POST | `/api/auth/desactivar-2fa` | JWT | Desactiva 2FA e invalida códigos pendientes |
+| POST | `/api/auth/activar-2fa` | JWT | Activa 2FA del usuario autenticado (devuelve el usuario) |
+| POST | `/api/auth/desactivar-2fa` | JWT | Desactiva 2FA e invalida códigos pendientes (devuelve el usuario) |
 | GET | `/api/auth/perfil` | JWT | Perfil del usuario autenticado |
 | POST | `/api/auth/refresh` | JWT-refresh | Renueva el access token |
-| POST | `/api/auth/olvide-contrasena` | — | Envía email de recuperación (siempre 200) |
+| POST | `/api/auth/olvide-contrasena` | — | Envía **código de 6 dígitos** de recuperación (siempre 200) |
+| POST | `/api/auth/verificar-codigo-recuperacion` | — | Valida el código y devuelve el token de restablecimiento |
+| POST | `/api/auth/reenviar-codigo-recuperacion` | — | Reenvía el código (rate limit 60 s) |
 | POST | `/api/auth/reestablecer-contrasena` | — | Restablece contraseña con token de un solo uso |
 
 #### Contratos JSON — autenticación
@@ -229,7 +231,8 @@ Response `201`:
 }
 ```
 
-Códigos: `201` · `400` campos faltantes o email duplicado.
+Códigos: `201` · `400` campos faltantes · `409` email duplicado
+(`{"error": "El email ya está registrado.", "codigo": "EMAIL_DUPLICADO"}`).
 
 **POST `/api/auth/login`**: `{ "email": "...", "password": "..." }`.
 Sin 2FA → `200` con la misma forma del registro (`"Login exitoso."`).
@@ -256,17 +259,44 @@ Códigos: `200` · `400` código inválido/expirado o demasiados intentos · `40
 
 **POST `/api/auth/cancelar-login`** (JWT-temporal) → `200` con mensaje de
 cancelación. **POST `/api/auth/activar-2fa`** (JWT) → `200`
-`{"data": {"two_factor_enabled": true}, ...}`.
-**POST `/api/auth/desactivar-2fa`** (JWT) → `200` con `false`.
+`{"data": {"two_factor_enabled": true, "usuario": {...}}, ...}`.
+**POST `/api/auth/desactivar-2fa`** (JWT) → `200` con `false` y el usuario.
 
 **GET `/api/auth/perfil`** (JWT) → `200` `{"usuario": {...}}` · `401` · `404`.
 **POST `/api/auth/refresh`** (refresh token) → `200` `{"access_token": "..."}`.
 
-**POST `/api/auth/olvide-contrasena`**: `{"email": "..."}` → siempre `200`.
+#### Recuperación de contraseña con código
+
+El flujo es de 3 pasos: se pide un **código de 6 dígitos** (no un enlace) y
+después se define la contraseña.
+
+**POST `/api/auth/olvide-contrasena`**: `{"email": "..."}` → siempre `200`
+(mismo mensaje exista o no el email, para no revelar qué correos están
+registrados). Si el email existe, genera un código de 6 dígitos, lo hashea en
+la tabla `codigo_recuperacion` y lo envía por email. El código expira a los
+15 minutos y solo admite 5 intentos.
+
+**POST `/api/auth/verificar-codigo-recuperacion`**:
+`{"email": "...", "codigo": "482913"}` → `200`:
+
+```json
+{ "data": { "token": "<token-de-un-solo-uso>", "email": "...", "nombre": "..." },
+  "message": "Código verificado correctamente. Ahora define tu nueva contraseña." }
+```
+
+Códigos: `200` · `400` código incorrecto, expirado o email inexistente.
+
+**POST `/api/auth/reenviar-codigo-recuperacion`**: `{"email": "..."}` → `200`
+· `429` si se reenvió hace menos de 60 s.
+
 **POST `/api/auth/reestablecer-contrasena`**:
-`{"token": "<del-email>", "password": "nueva123", "confirm_password": "nueva123"}`
+`{"token": "<del-paso-anterior>", "password": "nueva123", "confirm_password": "nueva123"}`
 → `200`. Códigos: `400` token inválido/expirado/usado, claves distintas o
 < 6 caracteres.
+
+> Los enlaces antiguos de recuperación siguen funcionando: el token que se
+> entrega ahora por `verificar-codigo-recuperacion` es el mismo token de un
+> solo uso que se enviaba por email.
 
 ### Productos — `/api/products`
 
@@ -457,17 +487,62 @@ el frontend o la API.
 
 ## GitFlow
 
-Ramas: 
-- `main` (producción) · 
-- `develop` (integración) · 
-- `feature/*` (introduccion de funcionalidad)·
-- `hotfix/*`. (arreglo rapido de un error).
+Ramas:
+- `main` (producción) — se despliega automáticamente a AWS con cada push.
+- `develop` (integración) — aquí se mergesan todas las ramas `feature/*`.
+- `feature/*` (introducción de funcionalidad).
+- `hotfix/*` (arreglo rápido de un error).
+
+**Flujo de trabajo:**
+
+```text
+feature/mi-tarea  ──merge --no-ff──▶  develop  ──merge --no-ff──▶  main
+                                                       │
+                                                       └──▶ GitHub Actions
+                                                            despliega a AWS
+```
+
+- Nadie trabaja directamente sobre `main` ni sobre `develop`.
+- Cada tarea vive en su rama `feature/*` created desde `develop`.
+- Al integrar en `develop` se usa `git merge --no-ff` para que quede el
+  registro de la rama.
+- `main` se actualiza cuando el trabajo está listo para producción; ese push
+  dispara el pipeline de despliegue.
 
 ## Despliegue
 
-### Despliegue del frontend a través del backend (modo actual)
+### AWS (modo actual)
 
-Por ahora el frontend se despliega servido por la API, en una sola URL:
+El proyecto está desplegado en AWS con esta arquitectura:
+
+| Componente | Servicio | Notas |
+|---|---|---|
+| Frontend | **S3 + CloudFront** | `dist/` se sube a S3 y se invalida la caché de CloudFront. HTTPS por el certificado de CloudFront. |
+| Backend | **EC2** (Ubuntu 22.04) | Código en `/var/www/keibeauty-backend/KeiBeauty`, venv en `/var/www/keibeauty-backend/venv`, servicio systemd `keibeauty` + nginx. |
+| Base de datos | **RDS PostgreSQL** | Solo accesible desde la red interna (Security Group). |
+
+El despliegue lo hace **GitHub Actions** (`.github/workflows/deploy.yml`) en
+cada push a `main`:
+
+- **Backend**: SSH a la instancia → `git pull origin main` →
+  `pip install -r requirements.txt` → `flask db upgrade` → reinicio de
+  `keibeauty` y `nginx` → verificación del `/health`.
+  Si la migración falla el deploy se detiene (el sitio sigue sirviendo la
+  versión anterior).
+- **Frontend**: `npm ci` → `npm run build` → `aws s3 sync` → invalidación de
+  la caché de CloudFront. Los assets con hash se cachean un año; `index.html`
+  se sirve siempre sin caché.
+
+**Secretos requeridos** (Settings → Secrets and variables → Actions):
+
+| Secret | Repo |
+|---|---|
+| `EC2_HOST`, `EC2_USERNAME`, `EC2_SSH_KEY` | Backend |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BUCKET`, `CLOUDFRONT_DISTRIBUTION_ID`, `VITE_API_URL` | Frontend |
+
+### Despliegue del frontend a través del backend (modo anterior)
+
+El frontend también se puede servir desde la API, en una sola URL:
 
 - **Ruta:** `/` (y cualquier ruta SPA: `/catalogo`, `/sobre-nosotros`,
   `/config-api`) sirve `dist/index.html`; `/health` y `/api/*` siguen JSON.
