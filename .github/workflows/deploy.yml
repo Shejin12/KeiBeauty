@@ -9,18 +9,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Executing remote ssh commands using ssh key
-        uses: appleboy/ssh-action@v0.1.10
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          # set -e detiene el deploy si un paso falla: si la migracion falla
+          # NO se reinicia gunicorn, el sitio sigue sirviendo la version anterior.
+          script: |
+            set -e
+            cd /var/www/keibeauty-backend/KeiBeauty
+            git pull origin main
+            source /var/www/keibeauty-backend/venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            echo "--- Aplicando migraciones (flask db upgrade) ---"
+            flask db upgrade
+            echo "--- Reiniciando servicios ---"
+            sudo systemctl restart keibeauty
+            sudo systemctl restart nginx
+            echo "--- Estado del servicio ---"
+            sudo systemctl status keibeauty --no-pager || true
+
+      - name: Verificar health check
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd /var/www/keibeauty-backend/KeiBeauty
-            git pull origin main
-            source /var/www/keibeauty-backend/venv/bin/activate
-            pip install -r requirements.txt
-            sudo systemctl restart keibeauty
-            sudo systemctl restart nginx
+            sleep 5
+            curl -fsS http://127.0.0.1:5000/health || curl -fsS http://127.0.0.1/health
