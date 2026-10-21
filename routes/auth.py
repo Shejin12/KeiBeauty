@@ -1,9 +1,9 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity, get_jwt
-from models import db, Usuario, RecuperacionContrasena, Codigo2FA, CatalogoRolUsuario
+from models import db, Usuario, RecuperacionContrasena, Codigo2FA, CodigoRecuperacion, CatalogoRolUsuario
 from utils.email import email_service
 from utils.decorators import solo_en_autenticacion, rechazar_en_autenticacion
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -294,26 +294,114 @@ def olvide_contrasena():
 
     usuario = Usuario.query.filter_by(email=email).first()
 
-    # Siempre respondemos éxito por seguridad (no revelar si email existe)
+    # Siempre respondemos éxito por seguridad (no revelar si el email existe)
     if usuario:
         try:
-            token, recuperacion = RecuperacionContrasena.crear_solicitud(usuario.id)
-            
-            frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:5173')
-            email_service.enviar_recuperacion_contrasena(
+            codigo, _ = CodigoRecuperacion.crear_codigo(
+                usuario.id,
+                ip=request.remote_addr,
+                minutos_validez=15
+            )
+            email_service.enviar_codigo_recuperacion(
                 to_email=usuario.email,
                 nombre=usuario.nombre,
-                token=token,
-                frontend_url=frontend_url
+                codigo=codigo,
+                minutos_validez=15
             )
         except Exception as e:
-            current_app.logger.error(f'Error enviando email recuperacion: {e}')
+            current_app.logger.error(f'Error emailing recuperacion: {e}')
             # No fallamos la request por seguridad
 
     return jsonify({
         'data': None,
-        'message': 'Si el email existe, recibirás instrucciones para restablecer tu contraseña.'
+        'message': 'Si el email existe, recibirás un código para restablecer tu contraseña.'
     }), 200
+
+
+@auth_bp.route('/verificar-codigo-recuperacion', methods=['POST'])
+def verificar_codigo_recuperacion():
+    """Verifica el código de 6 dígitos y devuelve el token de restablecimiento."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Datos JSON requeridos.'}), 400
+
+    email = data.get('email')
+    codigo = data.get('codigo')
+
+    if not email:
+        return jsonify({'error': 'Email es requerido.'}), 400
+    if not codigo:
+        return jsonify({'error': 'El código es obligatorio.'}), 400
+
+    usuario = Usuario.query.filter_by(email=email).first()
+    if not usuario:
+        return jsonify({'error': 'Código incorrecto', 'message': 'El código no es válido o ha expirado.'}), 400
+
+    codigo_recuperacion, error = CodigoRecuperacion.validar_codigo(usuario.id, codigo)
+    if error:
+        return jsonify({'error': 'Código incorrecto', 'message': error}), 400
+
+    # Código válido: se marca como usado y se emite el token de restablecimiento
+    codigo_recuperacion.marcar_como_usado()
+
+    try:
+        token, _ = RecuperacionContrasena.crear_solicitud(usuario.id)
+    except Exception as e:
+        current_app.logger.error(f'Error creando solicitud de recuperacion: {e}')
+        return jsonify({'error': 'Error interno', 'message': 'No se pudo generar el token de restablecimiento.'}), 500
+
+    return jsonify({
+        'data': {
+            'token': token,
+            'email': usuario.email,
+            'nombre': usuario.nombre
+        },
+        'message': 'Código verificado correctamente. Ahora define tu nueva contraseña.'
+    }), 200
+
+
+@auth_bp.route('/reenviar-codigo-recuperacion', methods=['POST'])
+def reenviar_codigo_recuperacion():
+    """Reenvía el código de recuperación con rate limit de 60 segundos."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Datos JSON requeridos.'}), 400
+
+    email = data.get('email')
+    if not email:
+        return jsonify({'error': 'Email es requerido.'}), 400
+
+    usuario = Usuario.query.filter_by(email=email).first()
+    if not usuario:
+        # Siempre respondemos éxito por seguridad
+        return jsonify({'data': None, 'message': 'Si el email existe, recibirás un código en breve.'}), 200
+
+    # Rate limit: no reenviar si el último código se envió hace menos de 60s
+    from sqlalchemy import desc
+    ultimo = CodigoRecuperacion.query.filter_by(usuario_id=usuario.id) \
+        .order_by(desc(CodigoRecuperacion.fecha_solicitud)).first()
+    if ultimo and (datetime.utcnow() - ultimo.fecha_solicitud) < timedelta(seconds=60):
+        return jsonify({
+            'error': 'Debes esperar 60 segundos antes de reenviar el código.',
+            'message': 'Debes esperar 60 segundos antes de reenviar el código.'
+        }), 429
+
+    try:
+        codigo, _ = CodigoRecuperacion.crear_codigo(
+            usuario.id,
+            ip=request.remote_addr,
+            minutos_validez=15
+        )
+        email_service.enviar_codigo_recuperacion(
+            to_email=usuario.email,
+            nombre=usuario.nombre,
+            codigo=codigo,
+            minutos_validez=15
+        )
+    except Exception as e:
+        current_app.logger.error(f'Error reenviando codigo de recuperacion: {e}')
+
+    return jsonify({'data': None, 'message': 'Si el email existe, recibirás un código en breve.'}), 200
 
 
 @auth_bp.route('/reestablecer-contrasena', methods=['POST'])
