@@ -42,7 +42,10 @@ class Usuario(db.Model):
             'rol_id': self.rol_id,
             'rol': self.rol_nombre,
             'two_factor_enabled': self.two_factor_enabled,
-            'fecha_registro': self.fecha_registro.isoformat() if self.fecha_registro else None
+            'fecha_registro': self.fecha_registro.isoformat() if self.fecha_registro else None,
+            # Direcciones y telefonos guardados en la cuenta del usuario.
+            'direcciones': [d.to_dict() for d in self.mis_direcciones],
+            'telefonos': [t.to_dict() for t in self.mis_telefonos]
         }
 
     def __repr__(self):
