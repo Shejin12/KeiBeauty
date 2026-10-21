@@ -12,6 +12,7 @@ class Pedido(db.Model):
     direccion_envio = db.Column(db.Text, nullable=False)
     email_contacto = db.Column(db.String(150), nullable=True)
     telefono_contacto = db.Column(db.String(20), nullable=True)
+    telefono_2 = db.Column(db.String(20), nullable=True)
     fecha_pedido = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     fecha_actualizacion = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     url_guia = db.Column(db.String(500), nullable=True)
@@ -35,6 +36,7 @@ class Pedido(db.Model):
             'direccion_envio': self.direccion_envio,
             'email_contacto': self.email_contacto,
             'telefono_contacto': self.telefono_contacto,
+            'telefono_2': self.telefono_2,
             'fecha_pedido': self.fecha_pedido.isoformat() if self.fecha_pedido else None,
             'fecha_actualizacion': self.fecha_actualizacion.isoformat() if self.fecha_actualizacion else None,
             'url_guia': self.url_guia,

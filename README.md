@@ -134,7 +134,7 @@ KeiBeauty/
 ├── .env.example            # Plantilla de variables de entorno
 ├── Dockerfile              # Multi-stage build (builder → runtime, usuario appuser)
 ├── docker-compose.yml      # api + db; monta ../KeiBeauty-frontend/dist en /frontend-dist
-├── migrations/versions/    # 15 migraciones Alembic
+├── migrations/versions/    # Migraciones Alembic
 ├── models/                 # Modelos SQLAlchemy
 │   ├── db.py               # Instancia SQLAlchemy
 │   ├── usuario.py          # Usuario (nombre, email, password hasheada, rol, 2FA)
@@ -150,6 +150,7 @@ KeiBeauty/
 │   ├── recuperacion_contrasena.py # Tokens SHA-256 de un solo uso (24 h)
 │   ├── resena.py           # Reseña (calificacion 1-5, comentario)
 │   ├── notificacion.py     # Notificación in-app (tipo, titulo, mensaje, datos JSON)
+│   ├── usuario_direccion.py # Direcciones de envío y teléfonos del usuario
 │   └── inventario_movimiento.py # Movimientos entrada/salida (+ costo_unitario)
 ├── routes/                 # Blueprints (un archivo por recurso)
 │   ├── auth.py             # /api/auth/*
@@ -161,6 +162,7 @@ KeiBeauty/
 │   ├── favoritos.py        # /api/favoritos/*
 │   ├── resenas.py          # /api/resenas/*
 │   ├── notificaciones.py   # /api/notificaciones/*
+│   ├── usuario.py          # /api/usuario/* (direcciones y teléfonos guardados)
 │   └── reportes.py         # /api/reportes/* (admin, JSON o Excel)
 └── utils/
     ├── decorators.py       # @admin_required, @solo_en_autenticacion, etc.
@@ -403,7 +405,27 @@ Códigos: `200/201` · `400` producto inactivo o stock insuficiente · `404`.
 Estados: `pendiente`, `confirmado`, `enviado`, `entregado`, `cancelado`. Al crear,
 el stock se descuenta; si llega a 0 el producto pasa a `agotado`.
 
-**POST `/api/pedidos`** autenticado: `{"direccion_envio": "12 Av. Zona 3, Xela"}`.
+**POST `/api/pedidos`** autenticado: la dirección y el teléfono pueden venir de
+los datos guardados en la cuenta (`direccion_id` / `telefono_id`) o escribirse
+libres (`direccion_envio` / `telefono`).
+
+```json
+{ "direccion_id": 2,
+  "telefono_id": 1,
+  "telefono_2": "5025555666",
+  "guardar_direccion": true,
+  "guardar_telefono": true
+}
+```
+
+- `direccion_id` / `telefono_id`: referencian una fila de `usuario_direcciones` /
+  `usuario_telefonos` del usuario autenticado. `404` si no le pertenecen.
+- `direccion_envio` / `telefono`: texto libre (mínimo 10 caracteres y 8 dígitos).
+- `telefono_2`: segundo teléfono de referencia, opcional.
+- `guardar_direccion` / `guardar_telefono`: guardan en la cuenta los datos que
+  venga como texto libre. Si el usuario ya tiene un principal, el nuevo queda
+  como secundario.
+
 Invitado:
 
 ```json
@@ -416,7 +438,33 @@ Invitado:
 
 (`items` solo si el invitado no tiene carrito guest.) Response `201` con el pedido
 (detalles con snapshot `precio_unitario`/`subtotal`/`nombre_producto`).
+El pedido guarda el snapshot de la dirección (`direccion_envio`), del teléfono
+principal (`telefono_contacto`) y del segundo teléfono (`telefono_2`).
 **PATCH `.../estado`**: `{"estado": "enviado"}` → `200` · `400` estado inválido.
+
+### Direcciones y teléfonos — `/api/usuario` (JWT)
+
+Permite tener varias direcciones de envío y varios teléfonos en la cuenta.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/usuario/direcciones` | Lista las direcciones del usuario |
+| POST | `/api/usuario/direcciones` | Crea una dirección |
+| PUT | `/api/usuario/direcciones/<id>` | Edita (alias, dirección, principal, activa) |
+| DELETE | `/api/usuario/direcciones/<id>` | Elimina; si era principal promueve la siguiente |
+| GET | `/api/usuario/telefonos` | Lista los teléfonos del usuario |
+| POST | `/api/usuario/telefonos` | Crea un teléfono |
+| PUT | `/api/usuario/telefonos/<id>` | Edita (teléfono, principal, activo) |
+| DELETE | `/api/usuario/telefonos/<id>` | Elimina; si era principal promueve el siguiente |
+
+**POST dirección**: `{"alias": "Casa", "direccion": "12 Av. Zona 3, Xela"}` →
+`201` · `400` dirección menor a 10 caracteres o alias mayor a 50.
+**POST teléfono**: `{"telefono": "50255556666"}` → `201` · `400` menos de 8 dígitos.
+
+Solo puede haber una dirección y un teléfono **principal** por usuario. Al
+cambiar la principal se actualizan las columnas de compatibilidad
+`usuarios.direccion_envio` y `usuarios.telefono`. `GET /api/auth/perfil`
+incluye las listas `direcciones` y `telefonos`.
 
 ### Favoritos — `/api/favoritos` (JWT)
 
