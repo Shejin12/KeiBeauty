@@ -32,7 +32,9 @@ class EmailService:
                 msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
             msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            # timeout en el socket SMTP: si el servidor de correo no responde,
+            # la peticion HTTP no debe quedar colgada indefinidamente.
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as server:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_password)
                 server.send_message(msg)
@@ -282,6 +284,70 @@ class EmailService:
         '''
 
         with open('/tmp/codigo_2fa.txt', 'w') as f:
+            f.write(str(codigo))
+        return self._send(to_email, subject, html_body, text_body)
+
+    def enviar_codigo_recuperacion(self, to_email: str, nombre: str, codigo: str, minutos_validez: int = 15) -> bool:
+        """Envía email con código de 6 dígitos para restablecer la contraseña - paleta KeiBeauty"""
+        subject = f'Tu código para restablecer tu contraseña: {codigo}'
+
+        html_body = f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin:0;padding:0;background-color:#F2F2F2;font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.6;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#F2F2F2;padding:20px;">
+                <tr><td align="center">
+                    <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #D9D9D7;">
+                        <tr>
+                            <td style="background-color:#4D4D59;padding:32px;text-align:center;">
+                                <h1 style="margin:0;color:#ffffff;font-size:24px;">KeiBeauty</h1>
+                                <p style="margin:8px 0 0;color:#D9D9D7;font-size:14px;">Recuperación de contraseña</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:32px;">
+                                <h2 style="margin:0 0 12px;color:#3A3E40;font-size:18px;">Hola {nombre},</h2>
+                                <p style="margin:0;color:#565659;font-size:14px;">Recibimos una solicitud para restablecer tu contraseña. Usa el siguiente código para continuar:</p>
+                                <div style="background:#F2F2F2;padding:20px;border-radius:12px;text-align:center;margin:20px 0;border:1px solid #D9D9D7;">
+                                    <span style="font-size:36px;font-weight:700;letter-spacing:0.5rem;color:#4D4D59;font-family:monospace;">{codigo}</span>
+                                </div>
+                                <p style="margin:0;padding:12px;background:#F2F2F2;border-left:4px solid #737166;border-radius:4px;color:#565659;font-size:13px;"><strong style="color:#3A3E40;">Importante:</strong> Este código expira en {minutos_validez} minutos y solo puede usarse una vez.</p>
+                                <p style="margin:16px 0 0;color:#8C8A80;font-size:13px;">Si no solicitaste esto, ignora este email. Tu contraseña no cambiará.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="background:#3A3E40;padding:20px;text-align:center;">
+                                <p style="margin:0;color:#D9D9D7;font-size:12px;">&copy; 2026 KeiBeauty. Cuidado de la piel coreano.</p>
+                                <p style="margin:4px 0 0;color:#A6A498;font-size:11px;">soporte@keibeauty.com</p>
+                            </td>
+                        </tr>
+                    </table>
+                </td></tr>
+            </table>
+        </body>
+        </html>
+        '''
+
+        text_body = f'''
+        Hola {nombre},
+
+        Recibimos una solicitud para restablecer tu contraseña en KeiBeauty.
+
+        Tu código es: {codigo}
+
+        Este código expira en {minutos_validez} minutos y solo puede usarse una vez.
+
+        Si no solicitaste esto, ignora este email. Tu contraseña no cambiará.
+
+        ---
+        KeiBeauty - Cuidado de la piel coreano
+        '''
+
+        with open('/tmp/codigo_recuperacion.txt', 'w') as f:
             f.write(str(codigo))
         return self._send(to_email, subject, html_body, text_body)
 

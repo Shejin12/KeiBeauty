@@ -1,12 +1,13 @@
 from models.db import db
 from datetime import datetime
+from sqlalchemy.orm import backref
 
 
 class ProductoFavorito(db.Model):
     __tablename__ = 'producto_favorito'
 
     id = db.Column(db.Integer, primary_key=True)
-    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False, index=True)
+    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id', ondelete='CASCADE'), nullable=False, index=True)
     producto_id = db.Column(db.Integer, db.ForeignKey('productos.id'), nullable=False, index=True)
     fecha_agregado = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -14,7 +15,13 @@ class ProductoFavorito(db.Model):
         db.UniqueConstraint('usuario_id', 'producto_id', name='uq_usuario_producto_favorito'),
     )
 
-    usuario = db.relationship('Usuario', backref='favoritos')
+    # cascade 'all, delete-orphan': al eliminar el usuario se eliminan sus
+    # favoritos (sin esto el ORM intenta poner usuario_id = NULL y revienta
+    # la restriccion NOT NULL).
+    usuario = db.relationship(
+        'Usuario',
+        backref=backref('favoritos', cascade='all, delete-orphan')
+    )
     producto = db.relationship('Producto', backref='favoritos')
 
     @classmethod

@@ -2,13 +2,14 @@ from models.db import db
 from datetime import datetime, timedelta
 import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy.orm import backref
 
 
 class Codigo2FA(db.Model):
     __tablename__ = 'codigo_2fa'
 
     id = db.Column(db.Integer, primary_key=True)
-    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id', ondelete='CASCADE'), nullable=False)
     fecha_solicitud = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     codigo_hash = db.Column(db.String(255), nullable=False)
     fecha_vencimiento = db.Column(db.DateTime, nullable=False)
@@ -16,7 +17,12 @@ class Codigo2FA(db.Model):
     intentos_fallidos = db.Column(db.Integer, default=0, nullable=False)
     ip_solicitud = db.Column(db.String(45))
 
-    usuario = db.relationship('Usuario', backref='codigos_2fa')
+    # cascade 'all, delete-orphan': al eliminar el usuario se eliminan sus codigos
+    # (sin esto el ORM intenta poner usuario_id = NULL y revienta el NOT NULL).
+    usuario = db.relationship(
+        'Usuario',
+        backref=backref('codigos_2fa', cascade='all, delete-orphan')
+    )
 
     @classmethod
     def crear_codigo(cls, usuario_id, ip=None):

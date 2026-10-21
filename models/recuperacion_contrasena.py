@@ -2,19 +2,26 @@ from models.db import db
 from datetime import datetime, timedelta
 import hashlib
 import secrets
+from sqlalchemy.orm import backref
 
 
 class RecuperacionContrasena(db.Model):
     __tablename__ = 'recuperacion_contrasena'
 
     id = db.Column(db.Integer, primary_key=True)
-    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id', ondelete='CASCADE'), nullable=False)
     fecha_solicitud = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     token_hash = db.Column(db.String(64), nullable=False, unique=True)
     fecha_vencimiento = db.Column(db.DateTime, nullable=False)
     usado = db.Column(db.Boolean, default=False, nullable=False)
 
-    usuario = db.relationship('Usuario', backref='recuperaciones_contrasena')
+    # cascade 'all, delete-orphan': al eliminar el usuario se eliminan sus
+    # solicitudes (sin esto el ORM intenta poner usuario_id = NULL y revienta
+    # la restriccion NOT NULL).
+    usuario = db.relationship(
+        'Usuario',
+        backref=backref('recuperaciones_contrasena', cascade='all, delete-orphan')
+    )
 
     @staticmethod
     def generar_token():

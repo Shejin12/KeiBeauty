@@ -8,6 +8,7 @@ from models.pedido import Pedido, DetallePedido
 from models.resena import Resena
 from models.recuperacion_contrasena import RecuperacionContrasena
 from models.codigo_2fa import Codigo2FA
+from models.codigo_recuperacion import CodigoRecuperacion
 from models.producto_favorito import ProductoFavorito
 from models.inventario_movimiento import InventarioMovimiento
 from models.producto_imagen import ProductoImagen
@@ -33,6 +34,7 @@ __all__ = [
     'Resena',
     'RecuperacionContrasena',
     'Codigo2FA',
+    'CodigoRecuperacion',
     'ProductoFavorito',
     'InventarioMovimiento',
     'ProductoImagen',
