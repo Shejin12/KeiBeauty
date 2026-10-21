@@ -32,7 +32,9 @@ class EmailService:
                 msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
             msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            # timeout en el socket SMTP: si el servidor de correo no responde,
+            # la peticion HTTP no debe quedar colgada indefinidamente.
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as server:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_password)
                 server.send_message(msg)
