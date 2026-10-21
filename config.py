@@ -12,19 +12,22 @@ class Config:
         'postgresql://postgres:postgres@localhost:5432/keibeauty_db'
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    # Permitir cualquier puerto en localhost para desarrollo
-    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost,http://localhost:80,http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5175,http://127.0.0.1:5175,*').split(',')
+    # Permitir localhost, CloudFront y puertos comunes para desarrollo y producción
+    CORS_ORIGINS = os.environ.get(
+        'CORS_ORIGINS', 
+        'https://d2agaijw0kvv8d.cloudfront.net,http://localhost,http://localhost:80,http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5175,http://127.0.0.1:5175,*'
+    ).split(',')
     # Regex para permitir localhost en cualquier puerto (desarrollo) - flask-cors entiende regex strings
     CORS_ORIGINS_REGEX = r'https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|\d+\.\d+\.\d+\.\d+)(:\d+)?'
-    # Regex extra opcional (ej. túneles ngrok que cambian de URL):
+    # Regex extra opcional (ej. túneles ngrok que cambian de URL o dominios CloudFront adicionales):
     # CORS_ORIGINS_REGEX_EXTRA=https://.*\.ngrok-free\.app
-    CORS_ORIGINS_REGEX_EXTRA = os.environ.get('CORS_ORIGINS_REGEX_EXTRA', '')
+    CORS_ORIGINS_REGEX_EXTRA = os.environ.get('CORS_ORIGINS_REGEX_EXTRA', r'https://d2agaijw0kvv8d\.cloudfront\.net')
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'jwt-secret-key-change-in-production')
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
     
-    # Frontend URL para enlaces en emails
-    FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+    # Frontend URL para enlaces en emails (actualizado por defecto a CloudFront o variable de entorno)
+    FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://d2agaijw0kvv8d.cloudfront.net')
 
     # Directorio con el build del frontend (dist/) para servir la SPA desde la
     # API. Vacío = la API solo expone JSON. Útil para pruebas con una sola URL
