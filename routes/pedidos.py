@@ -248,9 +248,11 @@ def crear_pedido():
             if not estado_pendiente or not estado_agotado or not estado_activo:
                 return jsonify({'error': 'Catálogos no inicializados', 'message': 'Faltan valores en los catálogos de estados'}), 500
             # Politica de envio: costo fijo, gratis a partir del subtotal minimo.
+            # La promocion de envio gratis se puede apagar desde la configuracion.
             costo_envio_config = ConfiguracionTienda.obtener_numero('costo_envio', 0.0)
             minimo_envio_gratis = ConfiguracionTienda.obtener_numero('minimo_envio_gratis', 0.0)
-            envio_gratis = minimo_envio_gratis > 0 and subtotal_productos >= minimo_envio_gratis
+            envio_gratis_activo = ConfiguracionTienda.obtener_booleano('envio_gratis_activo', True)
+            envio_gratis = envio_gratis_activo and minimo_envio_gratis > 0 and subtotal_productos >= minimo_envio_gratis
             costo_envio = 0.0 if envio_gratis else costo_envio_config
             monto_total = subtotal_productos + costo_envio
 
@@ -341,6 +343,7 @@ def crear_pedido():
                     'costo_envio': round(float(costo_envio), 2),
                     'monto_total': round(float(monto_total), 2),
                     'envio_gratis': envio_gratis,
+                    'envio_gratis_activo': envio_gratis_activo,
                     'minimo_envio_gratis': minimo_envio_gratis
                 },
                 'message': 'Pedido creado exitosamente.'
