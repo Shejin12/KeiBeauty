@@ -549,12 +549,18 @@ usuario+producto). Tipos: `pedido_estado`, `pedido_guia`, `producto_stock`.
 Todos aceptan `desde=YYYY-MM-DD`, `hasta=YYYY-MM-DD` y `excel=1` (descarga
 `.xlsx` vía openpyxl en lugar de JSON).
 
+Las exportaciones a Excel llevan siempre un subtítulo con el periodo
+cubierto (`Periodo: YYYY-MM-DD al YYYY-MM-DD`, o `Periodo: todo el historial`
+si no se envía rango) y el nombre del archivo incluye las fechas cuando el
+reporte las recibe (ej. `ventas_totales_2026-01-01_2026-01-31.xlsx`).
+`ventas-por-mes` respeta el rango `desde`/`hasta` (antes lo ignoraba).
+
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/api/reportes/ventas-totales` | Total y nº de pedidos (excluye cancelados) |
 | GET | `/api/reportes/ventas-por-mes` | Ventas por mes |
 | GET | `/api/reportes/ventas-por-periodo` | Pedidos entre `desde` y `hasta` (obligatorios) |
-| GET | `/api/reportes/ganancias` | Ventas vs. costos de movimientos `entrada` |
+| GET | `/api/reportes/ganancias` | Ventas vs. costos de movimientos `entrada` (+ serie `por_mes`) |
 | GET | `/api/reportes/productos-mas-vendidos` | Top (`limit`, defecto 10) |
 | GET | `/api/reportes/clientes-top` | Top (`limit`, defecto 10) |
 | GET | `/api/reportes/ventas-con-descuento` | Ventas con descuento por producto y comparación con el periodo anterior |
