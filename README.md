@@ -142,6 +142,7 @@ KeiBeauty/
 │   ├── categoria.py        # Categoria (nombre, descripcion)
 │   ├── producto.py         # Producto (+ tamano, marca/categoria, imagenes, resenas)
 │   ├── producto_imagen.py  # Galería de imágenes (es_principal, orden)
+│   ├── producto_descuento.py # Descuentos por producto (% y rango de fechas)
 │   ├── producto_favorito.py# Favoritos (único por usuario+producto)
 │   ├── producto_alerta.py  # Alertas "avísame" de stock por usuario+producto
 │   ├── carrito.py          # Carrito + DetalleCarrito (usuario_id o guest_token)
@@ -358,6 +359,33 @@ Objeto producto (`to_dict` + `es_favorito` opcional):
 `{"tipo": "entrada", "cantidad": 10, "costo_unitario": 12.50}`
 (`costo_unitario` solo en `entrada`). → `200` con el producto.
 
+### Descuentos por producto — `/api/products/<id>/descuentos` (JWT-Admin)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/products/<id>/descuentos` | Lista los descuentos del producto |
+| POST | `/api/products/<id>/descuentos` | Crea un descuento |
+| PUT | `/api/products/<id>/descuentos/<desc_id>` | Edita (porcentaje, fechas, activo) |
+| PATCH | `/api/products/<id>/descuentos/<desc_id>/estado` | Activa o desactiva |
+| DELETE | `/api/products/<id>/descuentos/<desc_id>` | Elimina |
+
+**POST**: `{"porcentaje": 20, "fecha_inicio": "2026-01-01", "fecha_fin": "2026-12-31"}`
+→ `201` · `400` porcentaje fuera de (0, 100] o `fecha_fin <= fecha_inicio`.
+
+Solo aplica el descuento **vigente** (`activo = true` y la fecha actual dentro
+del rango). Si dos descuentos se solapan se aplica el de mayor porcentaje y,
+en caso de empate, el que termina antes.
+
+El cálculo vive en un solo lugar (`models/producto_descuento.py`), así que el
+precio del catálogo y el precio cobrado en el pedido nunca divergen:
+
+- `GET /api/products` y `GET /api/products/<id>` agregan al producto
+  `precio_descuento` (precio final), `tiene_descuento` y `porcentaje_descuento`.
+  El campo `precio` conserva el precio de catálogo.
+- Al crear un pedido, `detalle_pedidos` guarda `precio_unitario` (precio de
+  catálogo), `precio_real` (precio cobrado) y `descuento_porcentaje`, y
+  `subtotal = precio_real * cantidad`.
+
 ### Categorías — `/api/categorias`
 
 | Método | Ruta | Auth | Descripción |
@@ -529,8 +557,16 @@ Todos aceptan `desde=YYYY-MM-DD`, `hasta=YYYY-MM-DD` y `excel=1` (descarga
 | GET | `/api/reportes/ganancias` | Ventas vs. costos de movimientos `entrada` |
 | GET | `/api/reportes/productos-mas-vendidos` | Top (`limit`, defecto 10) |
 | GET | `/api/reportes/clientes-top` | Top (`limit`, defecto 10) |
+| GET | `/api/reportes/ventas-con-descuento` | Ventas con descuento por producto y comparación con el periodo anterior |
 
 `reportes.py` genera exclusivamente Excel; no incluye exportación a PDF.
+
+**`ventas-con-descuento`**: por producto devuelve `unidades`,
+`unidades_con_descuento`, `ingresos_con_descuento`, `ingresos_sin_descuento`,
+`ahorro_total` y `descuento_promedio`. Además, si se envía `desde` y `hasta`,
+incluye en `comparacion` el periodo anterior equivalente (misma cantidad de
+días) con `variacion_ingresos_porcentaje` y `variacion_unidades_porcentaje`
+para ver si las ventas con descuento aumentaron.
 
 ## Migraciones
 

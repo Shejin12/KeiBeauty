@@ -1,5 +1,8 @@
 from models.db import db
+from models.producto_descuento import ProductoDescuento
 from datetime import datetime
+from decimal import Decimal
+import sqlalchemy as sa
 
 
 class Producto(db.Model):
@@ -26,6 +29,7 @@ class Producto(db.Model):
     detalle_pedidos = db.relationship('DetallePedido', back_populates='producto', cascade='all, delete-orphan')
     resenas = db.relationship('Resena', back_populates='producto', cascade='all, delete-orphan')
     imagenes = db.relationship('ProductoImagen', back_populates='producto', cascade='all, delete-orphan', order_by='ProductoImagen.orden')
+    descuentos = db.relationship('ProductoDescuento', back_populates='producto', cascade='all, delete-orphan')
 
     def _imagen_principal_url(self):
         # Buscar imagen principal en galería, fallback a imagen_url
@@ -41,11 +45,36 @@ class Producto(db.Model):
         """Nombre del estado (texto) para compatibilidad con el frontend."""
         return self.estado.nombre if self.estado else None
 
+    def descuento_vigente(self):
+        """Descuento vigente del producto (o None).
+
+        Si la relacion `descuentos` ya esta cargada se resuelve en memoria para
+        no disparar una consulta por producto en los listados.
+        """
+        if 'descuentos' not in sa.inspect(self).unloaded:
+            ahora = datetime.utcnow()
+            candidatos = [
+                d for d in self.descuentos
+                if d.activo and d.fecha_inicio <= ahora <= d.fecha_fin
+            ]
+            candidatos.sort(key=lambda d: (-float(d.porcentaje), d.fecha_fin))
+            return candidatos[0] if candidatos else None
+        return ProductoDescuento.vigente_para(self.id)
+
+    def precio_con_descuento(self):
+        """Precio final del producto con el descuento vigente aplicado."""
+        descuento = self.descuento_vigente()
+        if not descuento:
+            return Decimal(str(self.precio))
+        return descuento.precio_con_descuento(self.precio)
+
     def to_dict(self):
         # Ordenar imágenes: principal primero
         imagenes_ordenadas = []
         if self.imagenes:
             imagenes_ordenadas = sorted(self.imagenes, key=lambda x: (not x.es_principal, x.orden, x.id))
+        descuento = self.descuento_vigente()
+        precio_final = self.precio_con_descuento()
         return {
             'id': self.id,
             'nombre': self.nombre,
@@ -54,6 +83,11 @@ class Producto(db.Model):
             'tipo_piel': self.tipo_piel,
             'tamano': self.tamano or '',
             'precio': float(self.precio),
+            # Precio con el descuento vigente aplicado (precio sigue siendo el
+            # precio de catalogo para no romper a los consumidores existentes).
+            'precio_descuento': float(precio_final),
+            'tiene_descuento': descuento is not None,
+            'porcentaje_descuento': float(descuento.porcentaje) if descuento else 0.0,
             'stock': self.stock,
             'imagen_url': self._imagen_principal_url(),
             'imagenes': [img.to_dict() for img in imagenes_ordenadas],
