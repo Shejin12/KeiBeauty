@@ -49,8 +49,20 @@ class DetalleCarrito(db.Model):
     producto = db.relationship('Producto', back_populates='detalle_carrito')
 
     @property
+    def precio_unitario(self):
+        """Precio de catalogo del producto (sin descuento)."""
+        return float(self.producto.precio) if self.producto else 0
+
+    @property
+    def precio(self):
+        """Precio unitario con el descuento vigente aplicado."""
+        if not self.producto:
+            return 0
+        return float(self.producto.precio_con_descuento())
+
+    @property
     def subtotal(self):
-        return float(self.producto.precio) * self.cantidad if self.producto else 0
+        return self.precio * self.cantidad if self.producto else 0
 
     def to_dict(self):
         return {
@@ -59,6 +71,8 @@ class DetalleCarrito(db.Model):
             'producto_id': self.producto_id,
             'cantidad': self.cantidad,
             'fecha_agregado': self.fecha_agregado.isoformat() if self.fecha_agregado else None,
+            'precio': self.precio,
+            'precio_unitario': self.precio_unitario,
             'subtotal': self.subtotal,
             'producto': self.producto.to_dict() if self.producto else None
         }

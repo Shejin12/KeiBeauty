@@ -14,6 +14,9 @@ from models.inventario_movimiento import InventarioMovimiento
 from models.producto_imagen import ProductoImagen
 from models.notificacion import Notificacion
 from models.producto_alerta import ProductoAlerta
+from models.usuario_direccion import UsuarioDireccion, UsuarioTelefono
+from models.configuracion_tienda import ConfiguracionTienda
+from models.producto_descuento import ProductoDescuento
 from models.catalogos import (
     CatalogoEstadoPedido,
     CatalogoTipoNotificacion,
@@ -40,6 +43,10 @@ __all__ = [
     'ProductoImagen',
     'Notificacion',
     'ProductoAlerta',
+    'UsuarioDireccion',
+    'UsuarioTelefono',
+    'ConfiguracionTienda',
+    'ProductoDescuento',
     'CatalogoEstadoPedido',
     'CatalogoTipoNotificacion',
     'CatalogoRolUsuario',

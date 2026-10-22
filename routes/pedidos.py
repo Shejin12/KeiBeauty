@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
 from utils.decorators import admin_required, rechazar_en_autenticacion
 from utils.email import email_service
-from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito, Notificacion, ProductoAlerta, CatalogoEstadoPedido, CatalogoEstadoProducto, CatalogoTipoNotificacion
+from models import db, Pedido, DetallePedido, Producto, Carrito, DetalleCarrito, Notificacion, ProductoAlerta, CatalogoEstadoPedido, CatalogoEstadoProducto, CatalogoTipoNotificacion, Usuario, UsuarioDireccion, UsuarioTelefono, ConfiguracionTienda
 
 try:
     from imagekitio import ImageKit
@@ -32,6 +32,18 @@ def get_guest_token():
     return request.headers.get('X-Guest-Token') or request.args.get('guest_token')
 
 
+def _precio_producto(producto):
+    """Precio final de un producto y porcentaje de descuento aplicado.
+
+    Usa el mismo cálculo que el detalle del producto, de modo que el precio
+    que se cobra y el que se muestra en el catálogo nunca divergen.
+    """
+    descuento = producto.descuento_vigente()
+    if not descuento:
+        return float(producto.precio), 0.0
+    return float(descuento.precio_con_descuento(producto.precio)), float(descuento.porcentaje)
+
+
 @pedidos_bp.route('', methods=['POST'])
 def crear_pedido():
     try:
@@ -47,37 +59,93 @@ def crear_pedido():
             return jsonify({'error': 'Datos JSON requeridos', 'message': 'El cuerpo de la petición debe ser JSON válido'}), 400
         
         # Validaciones de dirección
-        direccion_envio = data.get('direccion_envio')
-        if not direccion_envio or not direccion_envio.strip():
+        # La dirección puede venir guardada en la cuenta (direccion_id) o como
+        # texto libre (direccion_envio).
+        usuario = None
+        if not es_invitado:
+            usuario = db.session.get(Usuario, usuario_id)
+
+        direccion_registrada = None
+        direccion_envio = (data.get('direccion_envio') or '').strip()
+
+        direccion_id = data.get('direccion_id')
+        if direccion_id:
+            if es_invitado:
+                return jsonify({
+                    'error': 'Dirección inválida',
+                    'message': 'Las direcciones guardadas solo están disponibles para usuarios con cuenta'
+                }), 400
+            direccion_registrada = UsuarioDireccion.query.filter_by(
+                id=int(direccion_id), usuario_id=usuario_id, activa=True
+            ).first()
+            if not direccion_registrada:
+                return jsonify({
+                    'error': 'Dirección no encontrada',
+                    'message': f'No existe la dirección {direccion_id} en tu cuenta'
+                }), 404
+            direccion_envio = direccion_registrada.direccion
+
+        if not direccion_envio:
             return jsonify({'error': 'Dirección requerida', 'message': 'La dirección de envío es obligatoria'}), 400
-        
+
         # Para invitados, validar campos adicionales
         email_contacto = None
         telefono_contacto = None
-        
+        telefono_registrado = None
+        telefono_2 = (data.get('telefono_2') or '').strip() or None
+
+        # Telefono principal: puede venir guardado en la cuenta (telefono_id)
+        # o como texto libre (telefono).
+        telefono_texto = (data.get('telefono') or '').strip()
+        telefono_id = data.get('telefono_id')
+        if telefono_id:
+            if es_invitado:
+                return jsonify({
+                    'error': 'Teléfono inválido',
+                    'message': 'Los teléfonos guardados solo están disponibles para usuarios con cuenta'
+                }), 400
+            telefono_registrado = UsuarioTelefono.query.filter_by(
+                id=int(telefono_id), usuario_id=usuario_id, activo=True
+            ).first()
+            if not telefono_registrado:
+                return jsonify({
+                    'error': 'Teléfono no encontrado',
+                    'message': f'No existe el teléfono {telefono_id} en tu cuenta'
+                }), 404
+            telefono_texto = telefono_registrado.telefono
+
+        if telefono_2 and len(''.join(c for c in telefono_2 if c.isdigit())) < 8:
+            return jsonify({
+                'error': 'Teléfono inválido',
+                'message': 'El teléfono de referencia debe tener al menos 8 dígitos'
+            }), 400
+
         if es_invitado:
             email_contacto = data.get('email_contacto')
-            telefono_contacto = data.get('telefono_contacto')
-            
+            telefono_contacto = data.get('telefono_contacto') or telefono_texto
+
             if not email_contacto:
                 return jsonify({'error': 'Email requerido', 'message': 'El email de contacto es obligatorio para pedidos como invitado'}), 400
             if not telefono_contacto:
                 return jsonify({'error': 'Teléfono requerido', 'message': 'El teléfono de contacto es obligatorio'}), 400
-            if len(telefono_contacto.strip()) < 8:
+            if len(''.join(c for c in str(telefono_contacto) if c.isdigit())) < 8:
                 return jsonify({'error': 'Teléfono inválido', 'message': 'El teléfono debe tener al menos 8 dígitos'}), 400
             # Validar formato de email básico
             if '@' not in email_contacto or '.' not in email_contacto:
                 return jsonify({'error': 'Email inválido', 'message': 'El formato del email no es válido'}), 400
         else:
-            # Usuario autenticado: usar datos del perfil
-            usuario = db.session.get(__import__('models', fromlist=['Usuario']).Usuario, usuario_id)
-            if usuario:
-                email_contacto = usuario.email
-                telefono_contacto = usuario.telefono
+            # Usuario autenticado: el email es el de la cuenta y el telefono
+            # puede ser uno guardado o el indicado en el checkout.
+            email_contacto = usuario.email if usuario else None
+            telefono_contacto = telefono_texto or (usuario.telefono if usuario else None)
+
+        # Guardar la direccion o el telefono en la cuenta del cliente.
+        guardar_direccion = bool(data.get('guardar_direccion')) and not es_invitado
+        guardar_telefono = bool(data.get('guardar_telefono')) and not es_invitado
         
         # Obtener items del pedido
         items_pedido = []
-        monto_total = 0
+        subtotal_productos = 0
         carrito = None
         
         if es_invitado:
@@ -106,12 +174,15 @@ def crear_pedido():
                         return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
                     
                     precio_unitario = float(producto.precio)
-                    subtotal = precio_unitario * cantidad
-                    monto_total += subtotal
-                    
+                    precio_real, descuento_porcentaje = _precio_producto(producto)
+                    subtotal = precio_real * cantidad
+                    subtotal_productos += subtotal
+
                     items_pedido.append({
                         'producto_id': producto.id,
                         'precio_unitario': precio_unitario,
+                        'precio_real': precio_real,
+                        'descuento_porcentaje': descuento_porcentaje,
                         'cantidad': cantidad,
                         'subtotal': subtotal,
                         'nombre_producto': producto.nombre
@@ -126,12 +197,16 @@ def crear_pedido():
                     if detalle_carrito.cantidad > producto.stock:
                         return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
                     
-                    subtotal = float(producto.precio) * detalle_carrito.cantidad
-                    monto_total += subtotal
-                    
+                    precio_unitario = float(producto.precio)
+                    precio_real, descuento_porcentaje = _precio_producto(producto)
+                    subtotal = precio_real * detalle_carrito.cantidad
+                    subtotal_productos += subtotal
+
                     items_pedido.append({
                         'producto_id': producto.id,
-                        'precio_unitario': float(producto.precio),
+                        'precio_unitario': precio_unitario,
+                        'precio_real': precio_real,
+                        'descuento_porcentaje': descuento_porcentaje,
                         'cantidad': detalle_carrito.cantidad,
                         'subtotal': subtotal,
                         'nombre_producto': producto.nombre
@@ -150,12 +225,16 @@ def crear_pedido():
                 if detalle_carrito.cantidad > producto.stock:
                     return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
                 
-                subtotal = float(producto.precio) * detalle_carrito.cantidad
-                monto_total += subtotal
-                
+                precio_unitario = float(producto.precio)
+                precio_real, descuento_porcentaje = _precio_producto(producto)
+                subtotal = precio_real * detalle_carrito.cantidad
+                subtotal_productos += subtotal
+
                 items_pedido.append({
                     'producto_id': producto.id,
-                    'precio_unitario': float(producto.precio),
+                    'precio_unitario': precio_unitario,
+                    'precio_real': precio_real,
+                    'descuento_porcentaje': descuento_porcentaje,
                     'cantidad': detalle_carrito.cantidad,
                     'subtotal': subtotal,
                     'nombre_producto': producto.nombre
@@ -168,22 +247,58 @@ def crear_pedido():
             estado_activo = CatalogoEstadoProducto.por_nombre('activo')
             if not estado_pendiente or not estado_agotado or not estado_activo:
                 return jsonify({'error': 'Catálogos no inicializados', 'message': 'Faltan valores en los catálogos de estados'}), 500
+            # Politica de envio: costo fijo, gratis a partir del subtotal minimo.
+            costo_envio_config = ConfiguracionTienda.obtener_numero('costo_envio', 0.0)
+            minimo_envio_gratis = ConfiguracionTienda.obtener_numero('minimo_envio_gratis', 0.0)
+            envio_gratis = minimo_envio_gratis > 0 and subtotal_productos >= minimo_envio_gratis
+            costo_envio = 0.0 if envio_gratis else costo_envio_config
+            monto_total = subtotal_productos + costo_envio
+
             pedido = Pedido(
                 usuario_id=usuario_id,
                 monto_total=monto_total,
+                subtotal_productos=subtotal_productos,
+                costo_envio=costo_envio,
                 estado=estado_pendiente,
                 direccion_envio=direccion_envio.strip(),
                 email_contacto=email_contacto,
-                telefono_contacto=telefono_contacto
+                telefono_contacto=telefono_contacto,
+                telefono_2=telefono_2
             )
             db.session.add(pedido)
             db.session.flush()  # Para obtener el ID del pedido
+
+            # Guardar en la cuenta la direccion y/o el telefono indicados en el checkout.
+            if usuario and guardar_direccion and not direccion_registrada:
+                nueva_direccion = UsuarioDireccion(
+                    usuario_id=usuario.id,
+                    alias=None,
+                    direccion=direccion_envio.strip(),
+                    es_principal=not UsuarioDireccion.query.filter_by(
+                        usuario_id=usuario.id, es_principal=True
+                    ).first(),
+                    activa=True
+                )
+                db.session.add(nueva_direccion)
+
+            if usuario and guardar_telefono and not telefono_registrado and telefono_texto:
+                nuevo_telefono = UsuarioTelefono(
+                    usuario_id=usuario.id,
+                    telefono=telefono_texto,
+                    es_principal=not UsuarioTelefono.query.filter_by(
+                        usuario_id=usuario.id, es_principal=True
+                    ).first(),
+                    activo=True
+                )
+                db.session.add(nuevo_telefono)
             
             for item in items_pedido:
                 detalle = DetallePedido(
                     pedido_id=pedido.id,
                     producto_id=item['producto_id'],
                     precio_unitario=item['precio_unitario'],
+                    precio_real=item.get('precio_real', item['precio_unitario']),
+                    descuento_porcentaje=item.get('descuento_porcentaje', 0),
                     cantidad=item['cantidad'],
                     subtotal=item['subtotal'],
                     nombre_producto=item.get('nombre_producto', '')
@@ -221,6 +336,13 @@ def crear_pedido():
             
             return jsonify({
                 'data': pedido.to_dict(),
+                'desglose': {
+                    'subtotal_productos': round(float(subtotal_productos), 2),
+                    'costo_envio': round(float(costo_envio), 2),
+                    'monto_total': round(float(monto_total), 2),
+                    'envio_gratis': envio_gratis,
+                    'minimo_envio_gratis': minimo_envio_gratis
+                },
                 'message': 'Pedido creado exitosamente.'
             }), 201
             

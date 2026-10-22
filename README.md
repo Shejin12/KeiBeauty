@@ -134,7 +134,7 @@ KeiBeauty/
 ├── .env.example            # Plantilla de variables de entorno
 ├── Dockerfile              # Multi-stage build (builder → runtime, usuario appuser)
 ├── docker-compose.yml      # api + db; monta ../KeiBeauty-frontend/dist en /frontend-dist
-├── migrations/versions/    # 15 migraciones Alembic
+├── migrations/versions/    # Migraciones Alembic
 ├── models/                 # Modelos SQLAlchemy
 │   ├── db.py               # Instancia SQLAlchemy
 │   ├── usuario.py          # Usuario (nombre, email, password hasheada, rol, 2FA)
@@ -142,6 +142,7 @@ KeiBeauty/
 │   ├── categoria.py        # Categoria (nombre, descripcion)
 │   ├── producto.py         # Producto (+ tamano, marca/categoria, imagenes, resenas)
 │   ├── producto_imagen.py  # Galería de imágenes (es_principal, orden)
+│   ├── producto_descuento.py # Descuentos por producto (% y rango de fechas)
 │   ├── producto_favorito.py# Favoritos (único por usuario+producto)
 │   ├── producto_alerta.py  # Alertas "avísame" de stock por usuario+producto
 │   ├── carrito.py          # Carrito + DetalleCarrito (usuario_id o guest_token)
@@ -150,6 +151,8 @@ KeiBeauty/
 │   ├── recuperacion_contrasena.py # Tokens SHA-256 de un solo uso (24 h)
 │   ├── resena.py           # Reseña (calificacion 1-5, comentario)
 │   ├── notificacion.py     # Notificación in-app (tipo, titulo, mensaje, datos JSON)
+│   ├── usuario_direccion.py # Direcciones de envío y teléfonos del usuario
+│   ├── configuracion_tienda.py # Configuración clave/valor de la tienda
 │   └── inventario_movimiento.py # Movimientos entrada/salida (+ costo_unitario)
 ├── routes/                 # Blueprints (un archivo por recurso)
 │   ├── auth.py             # /api/auth/*
@@ -161,6 +164,8 @@ KeiBeauty/
 │   ├── favoritos.py        # /api/favoritos/*
 │   ├── resenas.py          # /api/resenas/*
 │   ├── notificaciones.py   # /api/notificaciones/*
+│   ├── usuario.py          # /api/usuario/* (direcciones y teléfonos guardados)
+│   ├── configuracion.py    # /api/configuracion/* (ajustes de la tienda)
 │   └── reportes.py         # /api/reportes/* (admin, JSON o Excel)
 └── utils/
     ├── decorators.py       # @admin_required, @solo_en_autenticacion, etc.
@@ -354,6 +359,33 @@ Objeto producto (`to_dict` + `es_favorito` opcional):
 `{"tipo": "entrada", "cantidad": 10, "costo_unitario": 12.50}`
 (`costo_unitario` solo en `entrada`). → `200` con el producto.
 
+### Descuentos por producto — `/api/products/<id>/descuentos` (JWT-Admin)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/products/<id>/descuentos` | Lista los descuentos del producto |
+| POST | `/api/products/<id>/descuentos` | Crea un descuento |
+| PUT | `/api/products/<id>/descuentos/<desc_id>` | Edita (porcentaje, fechas, activo) |
+| PATCH | `/api/products/<id>/descuentos/<desc_id>/estado` | Activa o desactiva |
+| DELETE | `/api/products/<id>/descuentos/<desc_id>` | Elimina |
+
+**POST**: `{"porcentaje": 20, "fecha_inicio": "2026-01-01", "fecha_fin": "2026-12-31"}`
+→ `201` · `400` porcentaje fuera de (0, 100] o `fecha_fin <= fecha_inicio`.
+
+Solo aplica el descuento **vigente** (`activo = true` y la fecha actual dentro
+del rango). Si dos descuentos se solapan se aplica el de mayor porcentaje y,
+en caso de empate, el que termina antes.
+
+El cálculo vive en un solo lugar (`models/producto_descuento.py`), así que el
+precio del catálogo y el precio cobrado en el pedido nunca divergen:
+
+- `GET /api/products` y `GET /api/products/<id>` agregan al producto
+  `precio_descuento` (precio final), `tiene_descuento` y `porcentaje_descuento`.
+  El campo `precio` conserva el precio de catálogo.
+- Al crear un pedido, `detalle_pedidos` guarda `precio_unitario` (precio de
+  catálogo), `precio_real` (precio cobrado) y `descuento_porcentaje`, y
+  `subtotal = precio_real * cantidad`.
+
 ### Categorías — `/api/categorias`
 
 | Método | Ruta | Auth | Descripción |
@@ -403,7 +435,27 @@ Códigos: `200/201` · `400` producto inactivo o stock insuficiente · `404`.
 Estados: `pendiente`, `confirmado`, `enviado`, `entregado`, `cancelado`. Al crear,
 el stock se descuenta; si llega a 0 el producto pasa a `agotado`.
 
-**POST `/api/pedidos`** autenticado: `{"direccion_envio": "12 Av. Zona 3, Xela"}`.
+**POST `/api/pedidos`** autenticado: la dirección y el teléfono pueden venir de
+los datos guardados en la cuenta (`direccion_id` / `telefono_id`) o escribirse
+libres (`direccion_envio` / `telefono`).
+
+```json
+{ "direccion_id": 2,
+  "telefono_id": 1,
+  "telefono_2": "5025555666",
+  "guardar_direccion": true,
+  "guardar_telefono": true
+}
+```
+
+- `direccion_id` / `telefono_id`: referencian una fila de `usuario_direcciones` /
+  `usuario_telefonos` del usuario autenticado. `404` si no le pertenecen.
+- `direccion_envio` / `telefono`: texto libre (mínimo 10 caracteres y 8 dígitos).
+- `telefono_2`: segundo teléfono de referencia, opcional.
+- `guardar_direccion` / `guardar_telefono`: guardan en la cuenta los datos que
+  venga como texto libre. Si el usuario ya tiene un principal, el nuevo queda
+  como secundario.
+
 Invitado:
 
 ```json
@@ -416,7 +468,58 @@ Invitado:
 
 (`items` solo si el invitado no tiene carrito guest.) Response `201` con el pedido
 (detalles con snapshot `precio_unitario`/`subtotal`/`nombre_producto`).
+El pedido guarda el snapshot de la dirección (`direccion_envio`), del teléfono
+principal (`telefono_contacto`) y del segundo teléfono (`telefono_2`).
 **PATCH `.../estado`**: `{"estado": "enviado"}` → `200` · `400` estado inválido.
+
+### Direcciones y teléfonos — `/api/usuario` (JWT)
+
+Permite tener varias direcciones de envío y varios teléfonos en la cuenta.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/usuario/direcciones` | Lista las direcciones del usuario |
+| POST | `/api/usuario/direcciones` | Crea una dirección |
+| PUT | `/api/usuario/direcciones/<id>` | Edita (alias, dirección, principal, activa) |
+| DELETE | `/api/usuario/direcciones/<id>` | Elimina; si era principal promueve la siguiente |
+| GET | `/api/usuario/telefonos` | Lista los teléfonos del usuario |
+| POST | `/api/usuario/telefonos` | Crea un teléfono |
+| PUT | `/api/usuario/telefonos/<id>` | Edita (teléfono, principal, activo) |
+| DELETE | `/api/usuario/telefonos/<id>` | Elimina; si era principal promueve el siguiente |
+
+**POST dirección**: `{"alias": "Casa", "direccion": "12 Av. Zona 3, Xela"}` →
+`201` · `400` dirección menor a 10 caracteres o alias mayor a 50.
+**POST teléfono**: `{"telefono": "50255556666"}` → `201` · `400` menos de 8 dígitos.
+
+Solo puede haber una dirección y un teléfono **principal** por usuario. Al
+cambiar la principal se actualizan las columnas de compatibilidad
+`usuarios.direccion_envio` y `usuarios.telefono`. `GET /api/auth/perfil`
+incluye las listas `direcciones` y `telefonos`.
+
+### Configuración de la tienda — `/api/configuracion`
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/api/configuracion` | JWT-Admin | Todas las claves de configuración |
+| PUT | `/api/configuracion` | JWT-Admin | Actualiza una clave (`{clave, valor}`) |
+| GET | `/api/configuracion/envio` | — | Política de envío (pública, solo lectura) |
+
+**PUT**: `{"clave": "costo_envio", "valor": "35.00"}` → `200` · `400` valor no
+numérico o negativo · `404` clave inexistente. Solo se pueden modificar claves
+que ya existen.
+
+**Claves disponibles**
+
+| Clave | Valor inicial | Descripción |
+|---|---|---|
+| `costo_envio` | `30.00` | Costo fijo de envío en quetzales |
+| `minimo_envio_gratis` | `200.00` | Subtotal mínimo para obtener envío gratis (0 desactiva el envío gratis) |
+
+En `POST /api/pedidos` el total se calcula como
+`monto_total = subtotal_productos + costo_envio`. Si
+`subtotal_productos >= minimo_envio_gratis` el envío es gratis (`costo_envio = 0`).
+La respuesta incluye el bloque `desglose` con `subtotal_productos`, `costo_envio`,
+`monto_total`, `envio_gratis` y `minimo_envio_gratis`.
 
 ### Favoritos — `/api/favoritos` (JWT)
 
@@ -446,16 +549,30 @@ usuario+producto). Tipos: `pedido_estado`, `pedido_guia`, `producto_stock`.
 Todos aceptan `desde=YYYY-MM-DD`, `hasta=YYYY-MM-DD` y `excel=1` (descarga
 `.xlsx` vía openpyxl en lugar de JSON).
 
+Las exportaciones a Excel llevan siempre un subtítulo con el periodo
+cubierto (`Periodo: YYYY-MM-DD al YYYY-MM-DD`, o `Periodo: todo el historial`
+si no se envía rango) y el nombre del archivo incluye las fechas cuando el
+reporte las recibe (ej. `ventas_totales_2026-01-01_2026-01-31.xlsx`).
+`ventas-por-mes` respeta el rango `desde`/`hasta` (antes lo ignoraba).
+
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/api/reportes/ventas-totales` | Total y nº de pedidos (excluye cancelados) |
 | GET | `/api/reportes/ventas-por-mes` | Ventas por mes |
 | GET | `/api/reportes/ventas-por-periodo` | Pedidos entre `desde` y `hasta` (obligatorios) |
-| GET | `/api/reportes/ganancias` | Ventas vs. costos de movimientos `entrada` |
+| GET | `/api/reportes/ganancias` | Ventas vs. costos de movimientos `entrada` (+ serie `por_mes`) |
 | GET | `/api/reportes/productos-mas-vendidos` | Top (`limit`, defecto 10) |
 | GET | `/api/reportes/clientes-top` | Top (`limit`, defecto 10) |
+| GET | `/api/reportes/ventas-con-descuento` | Ventas con descuento por producto y comparación con el periodo anterior |
 
 `reportes.py` genera exclusivamente Excel; no incluye exportación a PDF.
+
+**`ventas-con-descuento`**: por producto devuelve `unidades`,
+`unidades_con_descuento`, `ingresos_con_descuento`, `ingresos_sin_descuento`,
+`ahorro_total` y `descuento_promedio`. Además, si se envía `desde` y `hasta`,
+incluye en `comparacion` el periodo anterior equivalente (misma cantidad de
+días) con `variacion_ingresos_porcentaje` y `variacion_unidades_porcentaje`
+para ver si las ventas con descuento aumentaron.
 
 ## Migraciones
 

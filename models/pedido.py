@@ -8,10 +8,13 @@ class Pedido(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
     monto_total = db.Column(db.Numeric(10, 2), nullable=False)
+    subtotal_productos = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+    costo_envio = db.Column(db.Numeric(10, 2), default=0, nullable=False)
     estado_id = db.Column(db.Integer, db.ForeignKey('catalogo_estado_pedido.id'), nullable=False)
     direccion_envio = db.Column(db.Text, nullable=False)
     email_contacto = db.Column(db.String(150), nullable=True)
     telefono_contacto = db.Column(db.String(20), nullable=True)
+    telefono_2 = db.Column(db.String(20), nullable=True)
     fecha_pedido = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     fecha_actualizacion = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     url_guia = db.Column(db.String(500), nullable=True)
@@ -30,11 +33,14 @@ class Pedido(db.Model):
             'id': self.id,
             'usuario_id': self.usuario_id,
             'monto_total': float(self.monto_total),
+            'subtotal_productos': float(self.subtotal_productos or 0),
+            'costo_envio': float(self.costo_envio or 0),
             'estado_id': self.estado_id,
             'estado': self.estado_nombre,
             'direccion_envio': self.direccion_envio,
             'email_contacto': self.email_contacto,
             'telefono_contacto': self.telefono_contacto,
+            'telefono_2': self.telefono_2,
             'fecha_pedido': self.fecha_pedido.isoformat() if self.fecha_pedido else None,
             'fecha_actualizacion': self.fecha_actualizacion.isoformat() if self.fecha_actualizacion else None,
             'url_guia': self.url_guia,
@@ -52,6 +58,8 @@ class DetallePedido(db.Model):
     pedido_id = db.Column(db.Integer, db.ForeignKey('pedidos.id'), nullable=False)
     producto_id = db.Column(db.Integer, db.ForeignKey('productos.id'), nullable=False)
     precio_unitario = db.Column(db.Numeric(10, 2), nullable=False)
+    precio_real = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+    descuento_porcentaje = db.Column(db.Numeric(5, 2), default=0, nullable=False)
     cantidad = db.Column(db.Integer, default=1, nullable=False)
     nombre_producto = db.Column(db.String(200), nullable=True)
     subtotal = db.Column(db.Numeric(10, 2), nullable=False)
@@ -65,6 +73,8 @@ class DetallePedido(db.Model):
             'pedido_id': self.pedido_id,
             'producto_id': self.producto_id,
             'precio_unitario': float(self.precio_unitario),
+            'precio_real': float(self.precio_real if self.precio_real is not None else self.precio_unitario),
+            'descuento_porcentaje': float(self.descuento_porcentaje or 0),
             'cantidad': self.cantidad,
             'nombre_producto': self.nombre_producto,
             'subtotal': float(self.subtotal),
