@@ -7,8 +7,10 @@ from datetime import datetime, timedelta
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
 
 reportes_bp = Blueprint('reportes', __name__, url_prefix='/api/reportes')
+
 
 def _excel_response(wb, filename):
     output = io.BytesIO()
@@ -16,20 +18,27 @@ def _excel_response(wb, filename):
     output.seek(0)
     return send_file(output, as_attachment=True, download_name=filename, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
+
 def _generar_excel(titulo, headers, rows, filename, subtitulo=None):
+    """Arma un Excel con titulo, subtitulo de periodo, encabezados y datos.
+
+    Usa get_column_letter para las columnas: `chr(64 + n)` se rompe a partir de
+    la columna 26 y con celdas combinadas.
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = titulo[:30]
     fill = PatternFill(start_color="8CB07A", end_color="8CB07A", fill_type="solid")
     font = Font(color="FFFFFF", bold=True)
+
     ws.append([titulo])
-    # Merge solo si hay headers
     if headers:
-        end_col = chr(64 + len(headers))
+        end_col = get_column_letter(len(headers))
         ws.merge_cells(f'A1:{end_col}1')
         ws['A1'].font = Font(size=14, bold=True, color="3A3E40")
         ws['A1'].alignment = Alignment(horizontal='center')
-        # Subtítulo con periodo si se proporciona
+
+        # Subtitulo con el periodo si se proporciona
         header_row = 2
         if subtitulo:
             ws.append([subtitulo])
@@ -40,29 +49,34 @@ def _generar_excel(titulo, headers, rows, filename, subtitulo=None):
             ws.append(headers)
         else:
             ws.append(headers)
+
         # Estilo encabezado
-        for col in range(1, len(headers)+1):
+        for col in range(1, len(headers) + 1):
             cell = ws.cell(row=header_row, column=col)
             cell.fill = fill
             cell.font = font
             cell.alignment = Alignment(horizontal='center')
+
         for row in rows:
-            # Asegurar que row tenga misma longitud que headers (rellenar vacíos)
+            # Asegurar que la fila tenga la misma longitud que los headers
             if len(row) < len(headers):
                 row = list(row) + [''] * (len(headers) - len(row))
-            ws.append(row)
+            # Normalizar valores vacios (None) para no romper el merge
+            ws.append(['' if valor is None else valor for valor in row])
+
         # Ajustar ancho sin usar ws.columns (evita MergedCell)
         for idx, h in enumerate(headers, start=1):
             max_len = len(str(h))
             for r in rows:
-                if idx-1 < len(r) and r[idx-1] not in (None, ''):
-                    max_len = max(max_len, len(str(r[idx-1])))
-            col_letter = chr(64 + idx)
-            ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
+                if idx - 1 < len(r) and r[idx - 1] not in (None, ''):
+                    max_len = max(max_len, len(str(r[idx - 1])))
+            ws.column_dimensions[get_column_letter(idx)].width = min(max_len + 4, 40)
     else:
         for row in rows:
-            ws.append(row)
+            ws.append(['' if valor is None else valor for valor in row])
+
     return _excel_response(wb, filename)
+
 
 def _subtitulo_periodo(desde, hasta):
     """Subtitulo con el periodo cubierto por el reporte."""
@@ -75,6 +89,17 @@ def _subtitulo_periodo(desde, hasta):
     return 'Periodo: todo el historial'
 
 
+def _nombre_archivo(base, desde, hasta):
+    """Nombre del archivo con el rango de fechas cuando aplica."""
+    if desde and hasta:
+        return f"{base}_{desde.strftime('%Y-%m-%d')}_{hasta.strftime('%Y-%m-%d')}.xlsx"
+    if desde:
+        return f"{base}_desde_{desde.strftime('%Y-%m-%d')}.xlsx"
+    if hasta:
+        return f"{base}_hasta_{hasta.strftime('%Y-%m-%d')}.xlsx"
+    return f'{base}.xlsx'
+
+
 def _parse_fecha(fecha_str):
     if not fecha_str:
         return None
@@ -82,6 +107,18 @@ def _parse_fecha(fecha_str):
         return datetime.strptime(fecha_str, '%Y-%m-%d')
     except:
         return None
+
+
+def _rango(desde, hasta):
+    """Devuelve (desde, hasta_fin) aplicando el filtro de fechas a un query."""
+    query = Pedido.query
+    if desde:
+        query = query.filter(Pedido.fecha_pedido >= desde)
+    if hasta:
+        hasta_fin = hasta.replace(hour=23, minute=59, second=59)
+        query = query.filter(Pedido.fecha_pedido <= hasta_fin)
+    return query
+
 
 @reportes_bp.route('/ventas-totales', methods=['GET'])
 @jwt_required()
@@ -93,13 +130,9 @@ def ventas_totales():
         excel = request.args.get('excel') == '1' or request.args.get('formato') == 'excel'
 
         estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
-        query = Pedido.query.filter(Pedido.estado_id != estado_cancelado.id)
-        if desde:
-            query = query.filter(Pedido.fecha_pedido >= desde)
-        if hasta:
-            # Incluir todo el día
-            hasta_fin = hasta.replace(hour=23, minute=59, second=59)
-            query = query.filter(Pedido.fecha_pedido <= hasta_fin)
+        query = _rango(desde, hasta)
+        if estado_cancelado:
+            query = query.filter(Pedido.estado_id != estado_cancelado.id)
 
         total_pedidos = query.count()
         total_ventas = query.with_entities(func.coalesce(func.sum(Pedido.monto_total), 0)).scalar() or 0
@@ -113,7 +146,11 @@ def ventas_totales():
             if desde or hasta:
                 rows.append(['Desde', desde.strftime('%Y-%m-%d') if desde else ''])
                 rows.append(['Hasta', hasta.strftime('%Y-%m-%d') if hasta else ''])
-            return _generar_excel('Ventas Totales', headers, rows, 'ventas_totales.xlsx')
+            return _generar_excel(
+                'Ventas Totales', headers, rows,
+                _nombre_archivo('ventas_totales', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            )
 
         return jsonify({
             'data': {
@@ -127,31 +164,58 @@ def ventas_totales():
     except Exception as e:
         return jsonify({'error': 'Error', 'message': str(e)}), 500
 
+
 @reportes_bp.route('/ventas-por-mes', methods=['GET'])
 @jwt_required()
 @admin_required
 def ventas_por_mes():
     try:
+        desde = _parse_fecha(request.args.get('desde'))
+        hasta = _parse_fecha(request.args.get('hasta'))
         excel = request.args.get('excel') == '1' or request.args.get('formato') == 'excel'
-        # Agrupar por año-mes
+
+        # Agrupar por año-mes, respetando el rango de fechas solicitado
         estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
-        resultados = db.session.query(
+        query = db.session.query(
             extract('year', Pedido.fecha_pedido).label('anio'),
             extract('month', Pedido.fecha_pedido).label('mes'),
             func.count(Pedido.id).label('pedidos'),
             func.sum(Pedido.monto_total).label('total')
-        ).filter(Pedido.estado_id != estado_cancelado.id).group_by('anio', 'mes').order_by('anio', 'mes').all()
+        ).filter(Pedido.estado_id != estado_cancelado.id)
 
-        data = [{'anio': int(r.anio), 'mes': int(r.mes), 'pedidos': r.pedidos, 'total': float(r.total or 0)} for r in resultados]
+        if desde:
+            query = query.filter(Pedido.fecha_pedido >= desde)
+        if hasta:
+            hasta_fin = hasta.replace(hour=23, minute=59, second=59)
+            query = query.filter(Pedido.fecha_pedido <= hasta_fin)
+
+        resultados = query.group_by('anio', 'mes').order_by('anio', 'mes').all()
+
+        data = [{
+            'anio': int(r.anio),
+            'mes': int(r.mes),
+            'pedidos': r.pedidos,
+            'total': float(r.total or 0)
+        } for r in resultados]
 
         if excel:
             headers = ['Año', 'Mes', 'Pedidos', 'Total Ventas (Q)']
             rows = [[d['anio'], d['mes'], d['pedidos'], d['total']] for d in data]
-            return _generar_excel('Ventas por Mes', headers, rows, 'ventas_por_mes.xlsx')
+            return _generar_excel(
+                'Ventas por Mes', headers, rows,
+                _nombre_archivo('ventas_por_mes', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            )
 
-        return jsonify({'data': data, 'message': 'Ventas por mes obtenidas'}), 200
+        return jsonify({
+            'data': data,
+            'desde': desde.isoformat() if desde else None,
+            'hasta': hasta.isoformat() if hasta else None,
+            'message': 'Ventas por mes obtenidas'
+        }), 200
     except Exception as e:
         return jsonify({'error': 'Error', 'message': str(e)}), 500
+
 
 @reportes_bp.route('/ventas-por-periodo', methods=['GET'])
 @jwt_required()
@@ -169,7 +233,11 @@ def ventas_por_periodo():
             return jsonify({'error': 'Formato inválido', 'message': 'Use YYYY-MM-DD'}), 400
         hasta_fin = hasta.replace(hour=23, minute=59, second=59)
         estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
-        pedidos = Pedido.query.filter(Pedido.fecha_pedido >= desde, Pedido.fecha_pedido <= hasta_fin, Pedido.estado_id != estado_cancelado.id).order_by(Pedido.fecha_pedido.desc()).all()
+        pedidos = Pedido.query.filter(
+            Pedido.fecha_pedido >= desde,
+            Pedido.fecha_pedido <= hasta_fin,
+            Pedido.estado_id != estado_cancelado.id
+        ).order_by(Pedido.fecha_pedido.desc()).all()
         total = sum(float(p.monto_total) for p in pedidos)
 
         if excel:
@@ -180,8 +248,11 @@ def ventas_por_periodo():
                 rows.append([p.id, p.fecha_pedido.strftime('%Y-%m-%d'), nombre, p.estado_nombre, float(p.monto_total)])
             rows.append([])
             rows.append(['Total', '', '', '', total])
-            subtitulo = f'Periodo: {desde_str} al {hasta_str}'
-            return _generar_excel('Ventas por Periodo', headers, rows, f'ventas_{desde_str}_{hasta_str}.xlsx', subtitulo=subtitulo)
+            return _generar_excel(
+                'Ventas por Periodo', headers, rows,
+                _nombre_archivo('ventas', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            )
 
         return jsonify({
             'data': {
@@ -195,6 +266,7 @@ def ventas_por_periodo():
         }), 200
     except Exception as e:
         return jsonify({'error': 'Error', 'message': str(e)}), 500
+
 
 @reportes_bp.route('/ganancias', methods=['GET'])
 @jwt_required()
@@ -217,16 +289,22 @@ def ganancias():
         ingresos = float(ingresos)
 
         # Costos (entradas con costo_unitario)
-        q_costos = InventarioMovimiento.query.filter_by(tipo='entrada').filter(InventarioMovimiento.costo_unitario.isnot(None))
+        q_costos = InventarioMovimiento.query.filter_by(tipo='entrada').filter(
+            InventarioMovimiento.costo_unitario.isnot(None)
+        )
         if desde:
             q_costos = q_costos.filter(InventarioMovimiento.fecha >= desde)
         if hasta:
+            hasta_fin = hasta.replace(hour=23, minute=59, second=59)
             q_costos = q_costos.filter(InventarioMovimiento.fecha <= hasta_fin)
         costos_data = q_costos.all()
         costos = sum(float(m.costo_unitario * m.cantidad) for m in costos_data) if costos_data else 0
 
         ganancia = ingresos - costos
         margen = (ganancia / ingresos * 100) if ingresos > 0 else 0
+
+        # Serie mensual para el grafico de reportes
+        por_mes = _ganancias_por_mes(desde, hasta)
 
         if excel:
             headers = ['Concepto', 'Monto (Q)']
@@ -236,7 +314,17 @@ def ganancias():
                 ['Ganancia', ganancia],
                 ['Margen %', round(margen, 2)],
             ]
-            return _generar_excel('Ganancias', headers, rows, 'ganancias.xlsx')
+            if por_mes:
+                rows.append([])
+                rows.append(['Detalle por mes', '', ''])
+                rows.append(['Año', 'Mes', 'Ingresos (Q)'])
+                for m in por_mes:
+                    rows.append([m['anio'], m['mes'], m['ingresos']])
+            return _generar_excel(
+                'Ganancias', headers, rows,
+                _nombre_archivo('ganancias', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            )
 
         return jsonify({
             'data': {
@@ -244,6 +332,7 @@ def ganancias():
                 'costos': costos,
                 'ganancia': ganancia,
                 'margen_porcentaje': round(margen, 2),
+                'por_mes': por_mes,
                 'desde': desde.isoformat() if desde else None,
                 'hasta': hasta.isoformat() if hasta else None
             },
@@ -251,6 +340,47 @@ def ganancias():
         }), 200
     except Exception as e:
         return jsonify({'error': 'Error', 'message': str(e)}), 500
+
+
+def _ganancias_por_mes(desde, hasta):
+    """Serie mensual de ingresos y costos dentro del rango indicado."""
+    estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
+
+    q_ventas = db.session.query(
+        extract('year', Pedido.fecha_pedido).label('anio'),
+        extract('month', Pedido.fecha_pedido).label('mes'),
+        func.coalesce(func.sum(Pedido.monto_total), 0).label('total')
+    ).filter(Pedido.estado_id != estado_cancelado.id)
+    if desde:
+        q_ventas = q_ventas.filter(Pedido.fecha_pedido >= desde)
+    if hasta:
+        q_ventas = q_ventas.filter(Pedido.fecha_pedido <= hasta.replace(hour=23, minute=59, second=59))
+    ventas = {(int(r.anio), int(r.mes)): float(r.total or 0) for r in q_ventas.group_by('anio', 'mes').all()}
+
+    q_costos = db.session.query(
+        extract('year', InventarioMovimiento.fecha).label('anio'),
+        extract('month', InventarioMovimiento.fecha).label('mes'),
+        func.coalesce(func.sum(InventarioMovimiento.costo_unitario * InventarioMovimiento.cantidad), 0).label('total')
+    ).filter(InventarioMovimiento.tipo == 'entrada').filter(InventarioMovimiento.costo_unitario.isnot(None))
+    if desde:
+        q_costos = q_costos.filter(InventarioMovimiento.fecha >= desde)
+    if hasta:
+        q_costos = q_costos.filter(InventarioMovimiento.fecha <= hasta.replace(hour=23, minute=59, second=59))
+    costos = {(int(r.anio), int(r.mes)): float(r.total or 0) for r in q_costos.group_by('anio', 'mes').all()}
+
+    resultado = []
+    for clave in sorted(set(ventas) | set(costos)):
+        ingreso = ventas.get(clave, 0.0)
+        costo = costos.get(clave, 0.0)
+        resultado.append({
+            'anio': clave[0],
+            'mes': clave[1],
+            'ingresos': round(ingreso, 2),
+            'costos': round(costo, 2),
+            'ganancia': round(ingreso - costo, 2)
+        })
+    return resultado
+
 
 @reportes_bp.route('/productos-mas-vendidos', methods=['GET'])
 @jwt_required()
@@ -279,7 +409,9 @@ def productos_mas_vendidos():
             hasta_fin = hasta.replace(hour=23, minute=59, second=59)
             q = q.filter(Pedido.fecha_pedido <= hasta_fin)
 
-        q = q.group_by(Producto.id, Producto.nombre, Producto.marca_id).order_by(func.sum(DetallePedido.cantidad).desc()).limit(limit)
+        q = q.group_by(Producto.id, Producto.nombre, Producto.marca_id).order_by(
+            func.sum(DetallePedido.cantidad).desc()
+        ).limit(limit)
         resultados = q.all()
 
         data = []
@@ -296,11 +428,16 @@ def productos_mas_vendidos():
         if excel:
             headers = ['Producto', 'Marca', 'Unidades Vendidas', 'Ingresos (Q)']
             rows = [[d['nombre'], d['marca'], d['total_vendidos'], d['total_ingresos']] for d in data]
-            return _generar_excel('Productos Mas Vendidos', headers, rows, 'productos_mas_vendidos.xlsx')
+            return _generar_excel(
+                'Productos Mas Vendidos', headers, rows,
+                _nombre_archivo('productos_mas_vendidos', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            )
 
         return jsonify({'data': data, 'message': 'Productos más vendidos obtenidos'}), 200
     except Exception as e:
         return jsonify({'error': 'Error', 'message': str(e)}), 500
+
 
 @reportes_bp.route('/clientes-top', methods=['GET'])
 @jwt_required()
@@ -329,7 +466,9 @@ def clientes_top():
             hasta_fin = hasta.replace(hour=23, minute=59, second=59)
             q = q.filter(Pedido.fecha_pedido <= hasta_fin)
 
-        q = q.group_by(Usuario.id, Usuario.nombre, Usuario.email).order_by(func.sum(Pedido.monto_total).desc()).limit(limit)
+        q = q.group_by(Usuario.id, Usuario.nombre, Usuario.email).order_by(
+            func.sum(Pedido.monto_total).desc()
+        ).limit(limit)
         resultados = q.all()
 
         data = []
@@ -345,7 +484,11 @@ def clientes_top():
         if excel:
             headers = ['Cliente', 'Email', 'Pedidos', 'Total Gastado (Q)']
             rows = [[d['nombre'], d['email'], d['total_pedidos'], d['total_gastado']] for d in data]
-            return _generar_excel('Clientes Top', headers, rows, 'clientes_top.xlsx')
+            return _generar_excel(
+                'Clientes Top', headers, rows,
+                _nombre_archivo('clientes_top', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            )
 
         return jsonify({'data': data, 'message': 'Clientes top obtenidos'}), 200
     except Exception as e:
@@ -388,7 +531,9 @@ def ventas_con_descuento():
                 q = q.filter(Pedido.fecha_pedido >= desde_ini)
             if hasta_fin:
                 q = q.filter(Pedido.fecha_pedido <= hasta_fin)
-            return q.group_by(Producto.id, Producto.nombre).order_by(func.sum(DetallePedido.cantidad * DetallePedido.precio_real).desc()).all()
+            return q.group_by(Producto.id, Producto.nombre).order_by(
+                func.sum(DetallePedido.cantidad * DetallePedido.precio_real).desc()
+            ).all()
 
         resultados = _consulta(desde, hasta.replace(hour=23, minute=59, second=59) if hasta else None)
 
@@ -450,7 +595,9 @@ def ventas_con_descuento():
             'ingresos_con_descuento': round(tot_ingresos_desc, 2),
             'ingresos_sin_descuento': round(tot_ingresos_full, 2),
             'ahorro_total': round(tot_ahorro, 2),
-            'descuento_promedio': round(((tot_ingresos_full - tot_ingresos_desc) / tot_ingresos_full * 100) if tot_ingresos_full > 0 else 0.0, 2)
+            'descuento_promedio': round(
+                ((tot_ingresos_full - tot_ingresos_desc) / tot_ingresos_full * 100) if tot_ingresos_full > 0 else 0.0, 2
+            )
         }
 
         if excel:
@@ -465,10 +612,11 @@ def ventas_con_descuento():
                 rows.append([])
                 rows.append([f"Periodo anterior ({comparacion['desde']} al {comparacion['hasta']})", comparacion['unidades'], '', comparacion['ingresos'], '', '', ''])
                 rows.append(['Variacion de ingresos (%)', comparacion['variacion_ingresos_porcentaje'] if comparacion['variacion_ingresos_porcentaje'] is not None else '', '', '', '', '', ''])
-            nombre_archivo = 'ventas_con_descuento'
-            if desde and hasta:
-                nombre_archivo += f'_{desde.strftime("%Y-%m-%d")}_{hasta.strftime("%Y-%m-%d")}'
-            return _generar_excel('Ventas con Descuento', headers, rows, f'{nombre_archivo}.xlsx', subtitulo=_subtitulo_periodo(desde, hasta))
+            return _generar_excel(
+                'Ventas con Descuento', headers, rows,
+                _nombre_archivo('ventas_con_descuento', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            )
 
         return jsonify({
             'data': {
