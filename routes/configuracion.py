@@ -7,6 +7,12 @@ configuracion_bp = Blueprint('configuracion', __name__, url_prefix='/api/configu
 
 # Claves numéricas que se validan como números >= 0.
 CLAVES_NUMERICAS = ['costo_envio', 'minimo_envio_gratis']
+# Claves booleanas (interruptores) que se validan como true/false.
+CLAVES_BOOLEANAS = ['envio_gratis_activo']
+
+# Valores aceptados para una clave booleana.
+VALORES_VERDADEROS = ('true', '1', 'si', 'sí', 'yes', 'activo', 'on')
+VALORES_FALSOS = ('false', '0', 'no', 'off', 'inactivo')
 
 
 @configuracion_bp.route('', methods=['GET'])
@@ -48,6 +54,19 @@ def actualizar_configuracion():
 
         valor = str(data.get('valor')).strip()
 
+        # Las claves booleanas solo admiten valores de verdad/falso.
+        if clave in CLAVES_BOOLEANAS:
+            normalizado = valor.lower()
+            if normalizado in VALORES_VERDADEROS:
+                valor = 'true'
+            elif normalizado in VALORES_FALSOS:
+                valor = 'false'
+            else:
+                return jsonify({
+                    'error': 'Valor inválido',
+                    'message': f'El valor de "{clave}" debe ser true o false'
+                }), 400
+
         # Las claves numéricas no admiten valores negativos ni texto no numérico.
         if clave in CLAVES_NUMERICAS:
             try:
@@ -83,7 +102,8 @@ def configuracion_envio():
         return jsonify({
             'data': {
                 'costo_envio': ConfiguracionTienda.obtener_numero('costo_envio', 0.0),
-                'minimo_envio_gratis': ConfiguracionTienda.obtener_numero('minimo_envio_gratis', 0.0)
+                'minimo_envio_gratis': ConfiguracionTienda.obtener_numero('minimo_envio_gratis', 0.0),
+                'envio_gratis_activo': ConfiguracionTienda.obtener_booleano('envio_gratis_activo', True)
             },
             'message': 'Configuración de envío obtenida exitosamente.'
         }), 200

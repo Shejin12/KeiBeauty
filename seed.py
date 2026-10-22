@@ -50,6 +50,7 @@ def seed_data():
         for clave, valor, descripcion in [
             ('costo_envio', '30.00', 'Costo fijo de envio en quetzales'),
             ('minimo_envio_gratis', '200.00', 'Subtotal minimo (en quetzales) para obtener envio gratis'),
+            ('envio_gratis_activo', 'true', 'Indica si la promocion de envio gratis esta activa'),
         ]:
             if not ConfiguracionTienda.query.filter_by(clave=clave).first():
                 ConfiguracionTienda.establecer(clave, valor, descripcion)

@@ -513,11 +513,19 @@ que ya existen.
 | Clave | Valor inicial | Descripción |
 |---|---|---|
 | `costo_envio` | `30.00` | Costo fijo de envío en quetzales |
-| `minimo_envio_gratis` | `200.00` | Subtotal mínimo para obtener envío gratis (0 desactiva el envío gratis) |
+| `minimo_envio_gratis` | `200.00` | Subtotal mínimo para obtener envío gratis |
+| `envio_gratis_activo` | `true` | Interruptor de la promoción de envío gratis |
+
+`envio_gratis_activo` se puede encender y apagar desde
+`PUT /api/configuracion` (`{"clave": "envio_gratis_activo", "valor": "false"}`;
+también acepta `1/0` y `si/no`). Con la promoción apagada **el envío se cobra
+siempre**, aunque el subtotal alcance el mínimo: el desglose del carrito y el
+pedido coinciden.
 
 En `POST /api/pedidos` el total se calcula como
-`monto_total = subtotal_productos + costo_envio`. Si
-`subtotal_productos >= minimo_envio_gratis` el envío es gratis (`costo_envio = 0`).
+`monto_total = subtotal_productos + costo_envio`. Si la promoción está activa
+y `subtotal_productos >= minimo_envio_gratis` el envío es gratis
+(`costo_envio = 0`).
 La respuesta incluye el bloque `desglose` con `subtotal_productos`, `costo_envio`,
 `monto_total`, `envio_gratis` y `minimo_envio_gratis`.
 

@@ -35,6 +35,23 @@ class ConfiguracionTienda(db.Model):
             return float(default)
 
     @classmethod
+    def obtener_booleano(cls, clave, default=False):
+        """Devuelve el valor de una clave como booleano.
+
+        Acepta 'true'/'false', '1'/'0', 'si'/'no'. Si la clave no existe o el
+        valor no se reconoce devuelve `default`.
+        """
+        valor = cls.obtener(clave)
+        if valor is None:
+            return bool(default)
+        texto = str(valor).strip().lower()
+        if texto in ('true', '1', 'si', 'sí', 'yes', 'activo', 'on'):
+            return True
+        if texto in ('false', '0', 'no', 'off', 'inactivo'):
+            return False
+        return bool(default)
+
+    @classmethod
     def establecer(cls, clave, valor, descripcion=None):
         """Crea o actualiza una clave de configuración y devuelve el registro."""
         registro = cls.query.filter_by(clave=clave).first()
