@@ -32,6 +32,18 @@ def get_guest_token():
     return request.headers.get('X-Guest-Token') or request.args.get('guest_token')
 
 
+def _precio_producto(producto):
+    """Precio final de un producto y porcentaje de descuento aplicado.
+
+    Usa el mismo cálculo que el detalle del producto, de modo que el precio
+    que se cobra y el que se muestra en el catálogo nunca divergen.
+    """
+    descuento = producto.descuento_vigente()
+    if not descuento:
+        return float(producto.precio), 0.0
+    return float(descuento.precio_con_descuento(producto.precio)), float(descuento.porcentaje)
+
+
 @pedidos_bp.route('', methods=['POST'])
 def crear_pedido():
     try:
@@ -162,12 +174,15 @@ def crear_pedido():
                         return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
                     
                     precio_unitario = float(producto.precio)
-                    subtotal = precio_unitario * cantidad
+                    precio_real, descuento_porcentaje = _precio_producto(producto)
+                    subtotal = precio_real * cantidad
                     subtotal_productos += subtotal
-                    
+
                     items_pedido.append({
                         'producto_id': producto.id,
                         'precio_unitario': precio_unitario,
+                        'precio_real': precio_real,
+                        'descuento_porcentaje': descuento_porcentaje,
                         'cantidad': cantidad,
                         'subtotal': subtotal,
                         'nombre_producto': producto.nombre
@@ -182,12 +197,16 @@ def crear_pedido():
                     if detalle_carrito.cantidad > producto.stock:
                         return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
                     
-                    subtotal = float(producto.precio) * detalle_carrito.cantidad
+                    precio_unitario = float(producto.precio)
+                    precio_real, descuento_porcentaje = _precio_producto(producto)
+                    subtotal = precio_real * detalle_carrito.cantidad
                     subtotal_productos += subtotal
-                    
+
                     items_pedido.append({
                         'producto_id': producto.id,
-                        'precio_unitario': float(producto.precio),
+                        'precio_unitario': precio_unitario,
+                        'precio_real': precio_real,
+                        'descuento_porcentaje': descuento_porcentaje,
                         'cantidad': detalle_carrito.cantidad,
                         'subtotal': subtotal,
                         'nombre_producto': producto.nombre
@@ -206,12 +225,16 @@ def crear_pedido():
                 if detalle_carrito.cantidad > producto.stock:
                     return jsonify({'error': 'Stock insuficiente', 'message': f'Solo hay {producto.stock} unidades de {producto.nombre}'}), 400
                 
-                subtotal = float(producto.precio) * detalle_carrito.cantidad
+                precio_unitario = float(producto.precio)
+                precio_real, descuento_porcentaje = _precio_producto(producto)
+                subtotal = precio_real * detalle_carrito.cantidad
                 subtotal_productos += subtotal
-                
+
                 items_pedido.append({
                     'producto_id': producto.id,
-                    'precio_unitario': float(producto.precio),
+                    'precio_unitario': precio_unitario,
+                    'precio_real': precio_real,
+                    'descuento_porcentaje': descuento_porcentaje,
                     'cantidad': detalle_carrito.cantidad,
                     'subtotal': subtotal,
                     'nombre_producto': producto.nombre
@@ -274,6 +297,8 @@ def crear_pedido():
                     pedido_id=pedido.id,
                     producto_id=item['producto_id'],
                     precio_unitario=item['precio_unitario'],
+                    precio_real=item.get('precio_real', item['precio_unitario']),
+                    descuento_porcentaje=item.get('descuento_porcentaje', 0),
                     cantidad=item['cantidad'],
                     subtotal=item['subtotal'],
                     nombre_producto=item.get('nombre_producto', '')

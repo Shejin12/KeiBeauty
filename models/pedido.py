@@ -58,6 +58,8 @@ class DetallePedido(db.Model):
     pedido_id = db.Column(db.Integer, db.ForeignKey('pedidos.id'), nullable=False)
     producto_id = db.Column(db.Integer, db.ForeignKey('productos.id'), nullable=False)
     precio_unitario = db.Column(db.Numeric(10, 2), nullable=False)
+    precio_real = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+    descuento_porcentaje = db.Column(db.Numeric(5, 2), default=0, nullable=False)
     cantidad = db.Column(db.Integer, default=1, nullable=False)
     nombre_producto = db.Column(db.String(200), nullable=True)
     subtotal = db.Column(db.Numeric(10, 2), nullable=False)
@@ -71,6 +73,8 @@ class DetallePedido(db.Model):
             'pedido_id': self.pedido_id,
             'producto_id': self.producto_id,
             'precio_unitario': float(self.precio_unitario),
+            'precio_real': float(self.precio_real if self.precio_real is not None else self.precio_unitario),
+            'descuento_porcentaje': float(self.descuento_porcentaje or 0),
             'cantidad': self.cantidad,
             'nombre_producto': self.nombre_producto,
             'subtotal': float(self.subtotal),

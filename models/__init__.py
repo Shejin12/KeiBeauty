@@ -16,6 +16,7 @@ from models.notificacion import Notificacion
 from models.producto_alerta import ProductoAlerta
 from models.usuario_direccion import UsuarioDireccion, UsuarioTelefono
 from models.configuracion_tienda import ConfiguracionTienda
+from models.producto_descuento import ProductoDescuento
 from models.catalogos import (
     CatalogoEstadoPedido,
     CatalogoTipoNotificacion,
@@ -45,6 +46,7 @@ __all__ = [
     'UsuarioDireccion',
     'UsuarioTelefono',
     'ConfiguracionTienda',
+    'ProductoDescuento',
     'CatalogoEstadoPedido',
     'CatalogoTipoNotificacion',
     'CatalogoRolUsuario',

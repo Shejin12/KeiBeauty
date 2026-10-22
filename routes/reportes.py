@@ -2,8 +2,8 @@ from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required
 from utils.decorators import admin_required
 from models import db, Pedido, DetallePedido, Producto, Usuario, InventarioMovimiento, CatalogoEstadoPedido, CatalogoRolUsuario
-from sqlalchemy import func, extract
-from datetime import datetime
+from sqlalchemy import func, extract, case
+from datetime import datetime, timedelta
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -63,6 +63,17 @@ def _generar_excel(titulo, headers, rows, filename, subtitulo=None):
         for row in rows:
             ws.append(row)
     return _excel_response(wb, filename)
+
+def _subtitulo_periodo(desde, hasta):
+    """Subtitulo con el periodo cubierto por el reporte."""
+    if desde and hasta:
+        return f'Periodo: {desde.strftime("%Y-%m-%d")} al {hasta.strftime("%Y-%m-%d")}'
+    if desde:
+        return f'Periodo: desde {desde.strftime("%Y-%m-%d")}'
+    if hasta:
+        return f'Periodo: hasta {hasta.strftime("%Y-%m-%d")}'
+    return 'Periodo: todo el historial'
+
 
 def _parse_fecha(fecha_str):
     if not fecha_str:
@@ -337,5 +348,137 @@ def clientes_top():
             return _generar_excel('Clientes Top', headers, rows, 'clientes_top.xlsx')
 
         return jsonify({'data': data, 'message': 'Clientes top obtenidos'}), 200
+    except Exception as e:
+        return jsonify({'error': 'Error', 'message': str(e)}), 500
+
+
+@reportes_bp.route('/ventas-con-descuento', methods=['GET'])
+@jwt_required()
+@admin_required
+def ventas_con_descuento():
+    """Ventas de productos con descuento y comparacion con el periodo anterior."""
+    try:
+        desde = _parse_fecha(request.args.get('desde'))
+        hasta = _parse_fecha(request.args.get('hasta'))
+        limit = request.args.get('limit', 0, type=int)
+        excel = request.args.get('excel') == '1' or request.args.get('formato') == 'excel'
+
+        estado_cancelado = CatalogoEstadoPedido.por_nombre('cancelado')
+
+        def _consulta(desde_ini, hasta_fin):
+            q = db.session.query(
+                Producto.id,
+                Producto.nombre,
+                func.sum(DetallePedido.cantidad).label('unidades'),
+                func.sum(
+                    case(
+                        (DetallePedido.descuento_porcentaje > 0, DetallePedido.cantidad),
+                        else_=0
+                    )
+                ).label('unidades_con_descuento'),
+                func.sum(DetallePedido.cantidad * DetallePedido.precio_real).label('ingresos_con_descuento'),
+                func.sum(DetallePedido.cantidad * DetallePedido.precio_unitario).label('ingresos_sin_descuento'),
+                func.sum(
+                    DetallePedido.cantidad * (DetallePedido.precio_unitario - DetallePedido.precio_real)
+                ).label('ahorro')
+            ).join(DetallePedido, DetallePedido.producto_id == Producto.id)\
+             .join(Pedido, Pedido.id == DetallePedido.pedido_id)\
+             .filter(Pedido.estado_id != estado_cancelado.id)
+            if desde_ini:
+                q = q.filter(Pedido.fecha_pedido >= desde_ini)
+            if hasta_fin:
+                q = q.filter(Pedido.fecha_pedido <= hasta_fin)
+            return q.group_by(Producto.id, Producto.nombre).order_by(func.sum(DetallePedido.cantidad * DetallePedido.precio_real).desc()).all()
+
+        resultados = _consulta(desde, hasta.replace(hour=23, minute=59, second=59) if hasta else None)
+
+        productos = []
+        tot_unidades = 0
+        tot_unidades_desc = 0
+        tot_ingresos_desc = 0.0
+        tot_ingresos_full = 0.0
+        tot_ahorro = 0.0
+        for r in resultados:
+            unidades = int(r.unidades or 0)
+            unidades_desc = int(r.unidades_con_descuento or 0)
+            ingresos_desc = float(r.ingresos_con_descuento or 0)
+            ingresos_full = float(r.ingresos_sin_descuento or 0)
+            ahorro = float(r.ahorro or 0)
+            descuento_promedio = ((ingresos_full - ingresos_desc) / ingresos_full * 100) if ingresos_full > 0 else 0.0
+            productos.append({
+                'producto_id': r.id,
+                'nombre': r.nombre,
+                'unidades': unidades,
+                'unidades_con_descuento': unidades_desc,
+                'ingresos_con_descuento': round(ingresos_desc, 2),
+                'ingresos_sin_descuento': round(ingresos_full, 2),
+                'ahorro_total': round(ahorro, 2),
+                'descuento_promedio': round(descuento_promedio, 2)
+            })
+            tot_unidades += unidades
+            tot_unidades_desc += unidades_desc
+            tot_ingresos_desc += ingresos_desc
+            tot_ingresos_full += ingresos_full
+            tot_ahorro += ahorro
+
+        if limit and limit > 0:
+            productos = productos[:limit]
+
+        # Comparacion con el periodo anterior de la misma cantidad de dias.
+        comparacion = None
+        if desde and hasta:
+            dias = (hasta.date() - desde.date()).days + 1
+            hasta_anterior = desde - timedelta(days=1)
+            desde_anterior = hasta_anterior - timedelta(days=dias - 1)
+            anterior = _consulta(desde_anterior, hasta_anterior.replace(hour=23, minute=59, second=59))
+            unidades_anterior = sum(int(r.unidades or 0) for r in anterior)
+            ingresos_anterior = sum(float(r.ingresos_con_descuento or 0) for r in anterior)
+            variacion_ingresos = ((tot_ingresos_desc - ingresos_anterior) / ingresos_anterior * 100) if ingresos_anterior > 0 else None
+            variacion_unidades = ((tot_unidades - unidades_anterior) / unidades_anterior * 100) if unidades_anterior > 0 else None
+            comparacion = {
+                'desde': desde_anterior.strftime('%Y-%m-%d'),
+                'hasta': hasta_anterior.strftime('%Y-%m-%d'),
+                'unidades': unidades_anterior,
+                'ingresos': round(ingresos_anterior, 2),
+                'variacion_ingresos_porcentaje': round(variacion_ingresos, 2) if variacion_ingresos is not None else None,
+                'variacion_unidades_porcentaje': round(variacion_unidades, 2) if variacion_unidades is not None else None
+            }
+
+        totales = {
+            'unidades': tot_unidades,
+            'unidades_con_descuento': tot_unidades_desc,
+            'ingresos_con_descuento': round(tot_ingresos_desc, 2),
+            'ingresos_sin_descuento': round(tot_ingresos_full, 2),
+            'ahorro_total': round(tot_ahorro, 2),
+            'descuento_promedio': round(((tot_ingresos_full - tot_ingresos_desc) / tot_ingresos_full * 100) if tot_ingresos_full > 0 else 0.0, 2)
+        }
+
+        if excel:
+            headers = ['Producto', 'Unidades', 'Unidades con descuento', 'Ingresos con descuento (Q)', 'Ingresos sin descuento (Q)', 'Ahorro (Q)', 'Descuento promedio (%)']
+            rows = [
+                [p['nombre'], p['unidades'], p['unidades_con_descuento'], p['ingresos_con_descuento'], p['ingresos_sin_descuento'], p['ahorro_total'], p['descuento_promedio']]
+                for p in productos
+            ]
+            rows.append([])
+            rows.append(['TOTAL', totales['unidades'], totales['unidades_con_descuento'], totales['ingresos_con_descuento'], totales['ingresos_sin_descuento'], totales['ahorro_total'], totales['descuento_promedio']])
+            if comparacion:
+                rows.append([])
+                rows.append([f"Periodo anterior ({comparacion['desde']} al {comparacion['hasta']})", comparacion['unidades'], '', comparacion['ingresos'], '', '', ''])
+                rows.append(['Variacion de ingresos (%)', comparacion['variacion_ingresos_porcentaje'] if comparacion['variacion_ingresos_porcentaje'] is not None else '', '', '', '', '', ''])
+            nombre_archivo = 'ventas_con_descuento'
+            if desde and hasta:
+                nombre_archivo += f'_{desde.strftime("%Y-%m-%d")}_{hasta.strftime("%Y-%m-%d")}'
+            return _generar_excel('Ventas con Descuento', headers, rows, f'{nombre_archivo}.xlsx', subtitulo=_subtitulo_periodo(desde, hasta))
+
+        return jsonify({
+            'data': {
+                'productos': productos,
+                'totales': totales,
+                'comparacion': comparacion,
+                'desde': desde.strftime('%Y-%m-%d') if desde else None,
+                'hasta': hasta.strftime('%Y-%m-%d') if hasta else None
+            },
+            'message': 'Ventas con descuento obtenidas'
+        }), 200
     except Exception as e:
         return jsonify({'error': 'Error', 'message': str(e)}), 500

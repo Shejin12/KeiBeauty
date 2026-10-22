@@ -1,9 +1,11 @@
 import os
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, get_jwt
+from sqlalchemy.orm import selectinload
 from utils.decorators import admin_required
-from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento, ProductoImagen, Notificacion, ProductoAlerta, Usuario, CatalogoEstadoProducto, CatalogoTipoNotificacion
+from models import db, Producto, Marca, Categoria, ProductoFavorito, InventarioMovimiento, ProductoImagen, Notificacion, ProductoAlerta, Usuario, ProductoDescuento, CatalogoEstadoProducto, CatalogoTipoNotificacion
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 try:
     from imagekitio import ImageKit
@@ -46,6 +48,19 @@ def notificar_stock_disponible(producto):
     except Exception as e:
         print(f"Error notificando stock: {e}")
         db.session.rollback()
+
+
+def _parsear_fecha(valor):
+    """Interpreta una fecha ISO (YYYY-MM-DD o con hora) y devuelve datetime o None."""
+    if not valor:
+        return None
+    texto = str(valor).strip().replace('Z', '')
+    for formato in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(texto, formato)
+        except ValueError:
+            continue
+    return None
 
 
 def _es_admin_actual():
@@ -101,7 +116,7 @@ def get_products():
             patron = buscar.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
             query = query.filter(Producto.nombre.ilike(f'%{patron}%', escape='\\'))
 
-        productos = query.order_by(Producto.fecha_creacion.desc()).all()
+        productos = query.options(selectinload(Producto.descuentos)).order_by(Producto.fecha_creacion.desc()).all()
         
         # Si se solicita con_favorito y hay usuario autenticado
         favoritos_set = set()
@@ -136,7 +151,7 @@ def get_products():
 @products_bp.route('/<int:product_id>', methods=['GET'])
 def get_product(product_id):
     try:
-        producto = db.session.get(Producto, product_id)
+        producto = db.session.get(Producto, product_id, options=[selectinload(Producto.descuentos)])
 
         if not producto:
             return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
@@ -634,6 +649,166 @@ def ajustar_inventario(product_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Error al ajustar inventario', 'message': str(e)}), 500
+
+
+# --- Descuentos por producto ---
+@products_bp.route('/<int:product_id>/descuentos', methods=['GET'])
+@jwt_required()
+@admin_required
+def listar_descuentos(product_id):
+    try:
+        producto = db.session.get(Producto, product_id)
+        if not producto:
+            return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
+
+        descuentos = ProductoDescuento.query.filter_by(producto_id=product_id).order_by(
+            ProductoDescuento.fecha_inicio.desc(), ProductoDescuento.id.desc()
+        ).all()
+
+        return jsonify({
+            'data': [d.to_dict() for d in descuentos],
+            'message': 'Descuentos obtenidos exitosamente.'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al obtener los descuentos', 'message': str(e)}), 500
+
+
+@products_bp.route('/<int:product_id>/descuentos', methods=['POST'])
+@jwt_required()
+@admin_required
+def crear_descuento(product_id):
+    try:
+        producto = db.session.get(Producto, product_id)
+        if not producto:
+            return jsonify({'error': 'Producto no encontrado', 'message': f'No existe producto con id {product_id}'}), 404
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Datos JSON requeridos', 'message': 'El cuerpo de la petición debe ser JSON válido'}), 400
+
+        try:
+            porcentaje = Decimal(str(data.get('porcentaje')))
+        except (TypeError, ValueError, InvalidOperation):
+            return jsonify({'error': 'Porcentaje inválido', 'message': 'El porcentaje debe ser un número'}), 400
+        if porcentaje <= 0 or porcentaje > 100:
+            return jsonify({'error': 'Porcentaje inválido', 'message': 'El porcentaje debe ser mayor a 0 y menor o igual a 100'}), 400
+
+        fecha_inicio = _parsear_fecha(data.get('fecha_inicio'))
+        fecha_fin = _parsear_fecha(data.get('fecha_fin'))
+        if not fecha_inicio or not fecha_fin:
+            return jsonify({'error': 'Fechas requeridas', 'message': 'Se requieren fecha_inicio y fecha_fin (YYYY-MM-DD)'}), 400
+        if fecha_fin <= fecha_inicio:
+            return jsonify({'error': 'Rango de fechas inválido', 'message': 'La fecha final debe ser posterior a la fecha inicial'}), 400
+
+        descuento = ProductoDescuento(
+            producto_id=producto.id,
+            porcentaje=porcentaje,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            activo=bool(data.get('activo', True))
+        )
+        db.session.add(descuento)
+        db.session.commit()
+
+        return jsonify({
+            'data': descuento.to_dict(),
+            'message': 'Descuento creado exitosamente.'
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al crear el descuento', 'message': str(e)}), 500
+
+
+@products_bp.route('/<int:product_id>/descuentos/<int:descuento_id>', methods=['PUT'])
+@jwt_required()
+@admin_required
+def actualizar_descuento(product_id, descuento_id):
+    try:
+        descuento = ProductoDescuento.query.filter_by(id=descuento_id, producto_id=product_id).first()
+        if not descuento:
+            return jsonify({'error': 'Descuento no encontrado', 'message': f'No existe el descuento {descuento_id} para el producto {product_id}'}), 404
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Datos JSON requeridos', 'message': 'El cuerpo de la petición debe ser JSON válido'}), 400
+
+        if 'porcentaje' in data:
+            try:
+                porcentaje = Decimal(str(data.get('porcentaje')))
+            except (TypeError, ValueError, InvalidOperation):
+                return jsonify({'error': 'Porcentaje inválido', 'message': 'El porcentaje debe ser un número'}), 400
+            if porcentaje <= 0 or porcentaje > 100:
+                return jsonify({'error': 'Porcentaje inválido', 'message': 'El porcentaje debe ser mayor a 0 y menor o igual a 100'}), 400
+            descuento.porcentaje = porcentaje
+
+        fecha_inicio = descuento.fecha_inicio
+        fecha_fin = descuento.fecha_fin
+        if 'fecha_inicio' in data:
+            fecha_inicio = _parsear_fecha(data.get('fecha_inicio')) or fecha_inicio
+        if 'fecha_fin' in data:
+            fecha_fin = _parsear_fecha(data.get('fecha_fin')) or fecha_fin
+        if fecha_fin <= fecha_inicio:
+            return jsonify({'error': 'Rango de fechas inválido', 'message': 'La fecha final debe ser posterior a la fecha inicial'}), 400
+        descuento.fecha_inicio = fecha_inicio
+        descuento.fecha_fin = fecha_fin
+
+        if 'activo' in data:
+            descuento.activo = bool(data.get('activo'))
+
+        db.session.commit()
+
+        return jsonify({
+            'data': descuento.to_dict(),
+            'message': 'Descuento actualizado exitosamente.'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al actualizar el descuento', 'message': str(e)}), 500
+
+
+@products_bp.route('/<int:product_id>/descuentos/<int:descuento_id>', methods=['DELETE'])
+@jwt_required()
+@admin_required
+def eliminar_descuento(product_id, descuento_id):
+    try:
+        descuento = ProductoDescuento.query.filter_by(id=descuento_id, producto_id=product_id).first()
+        if not descuento:
+            return jsonify({'error': 'Descuento no encontrado', 'message': f'No existe el descuento {descuento_id} para el producto {product_id}'}), 404
+
+        db.session.delete(descuento)
+        db.session.commit()
+
+        return jsonify({
+            'data': None,
+            'message': 'Descuento eliminado exitosamente.'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al eliminar el descuento', 'message': str(e)}), 500
+
+
+@products_bp.route('/<int:product_id>/descuentos/<int:descuento_id>/estado', methods=['PATCH'])
+@jwt_required()
+@admin_required
+def activar_descuento(product_id, descuento_id):
+    """Activa o desactiva un descuento sin eliminarlo."""
+    try:
+        descuento = ProductoDescuento.query.filter_by(id=descuento_id, producto_id=product_id).first()
+        if not descuento:
+            return jsonify({'error': 'Descuento no encontrado', 'message': f'No existe el descuento {descuento_id} para el producto {product_id}'}), 404
+
+        data = request.get_json() or {}
+        descuento.activo = bool(data.get('activo', not descuento.activo))
+        db.session.commit()
+
+        return jsonify({
+            'data': descuento.to_dict(),
+            'message': 'Descuento actualizado exitosamente.'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error al actualizar el descuento', 'message': str(e)}), 500
 
 
 @products_bp.route('/marcas', methods=['GET', 'OPTIONS'])
