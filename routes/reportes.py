@@ -8,6 +8,10 @@ import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
 reportes_bp = Blueprint('reportes', __name__, url_prefix='/api/reportes')
 
@@ -100,6 +104,40 @@ def _nombre_archivo(base, desde, hasta):
     return f'{base}.xlsx'
 
 
+def _quiere_pdf():
+    return request.args.get('pdf') == '1' or request.args.get('formato') == 'pdf'
+
+
+def _nombre_pdf(base, desde, hasta):
+    return _nombre_archivo(base, desde, hasta).replace('.xlsx', '.pdf')
+
+
+def _generar_pdf(titulo, headers, rows, filename, subtitulo=None):
+    """PDF simple con título, subtítulo de periodo y tabla."""
+    output = io.BytesIO()
+    doc = SimpleDocTemplate(output, pagesize=landscape(letter), title=titulo)
+    styles = getSampleStyleSheet()
+    elementos = [Paragraph(titulo, styles['Heading1'])]
+    if subtitulo:
+        elementos.append(Paragraph(subtitulo, styles['Normal']))
+    elementos.append(Spacer(1, 12))
+    datos = [headers] + [[("" if v is None else str(v)) for v in r] for r in rows if r]
+    tabla = Table(datos, repeatRows=1)
+    tabla.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#8CB07A')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F2F2')]),
+    ]))
+    elementos.append(tabla)
+    doc.build(elementos)
+    output.seek(0)
+    return send_file(output, as_attachment=True, download_name=filename, mimetype='application/pdf')
+
+
 def _parse_fecha(fecha_str):
     if not fecha_str:
         return None
@@ -152,6 +190,18 @@ def ventas_totales():
                 subtitulo=_subtitulo_periodo(desde, hasta)
             )
 
+        if _quiere_pdf():
+            headers = ['Métrica', 'Valor']
+            rows = [
+                ['Total Pedidos', total_pedidos],
+                ['Total Ventas (Q)', float(total_ventas)],
+            ]
+            return _generar_pdf(
+                'Ventas Totales', headers, rows,
+                _nombre_pdf('ventas_totales', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            )
+
         return jsonify({
             'data': {
                 'total_pedidos': total_pedidos,
@@ -201,7 +251,11 @@ def ventas_por_mes():
         if excel:
             headers = ['Año', 'Mes', 'Pedidos', 'Total Ventas (Q)']
             rows = [[d['anio'], d['mes'], d['pedidos'], d['total']] for d in data]
-            return _generar_excel(
+            return _generar_pdf(
+                'Ventas por Mes', headers, rows,
+                _nombre_pdf('ventas_por_mes', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            ) if _quiere_pdf() else _generar_excel(
                 'Ventas por Mes', headers, rows,
                 _nombre_archivo('ventas_por_mes', desde, hasta),
                 subtitulo=_subtitulo_periodo(desde, hasta)
@@ -248,7 +302,11 @@ def ventas_por_periodo():
                 rows.append([p.id, p.fecha_pedido.strftime('%Y-%m-%d'), nombre, p.estado_nombre, float(p.monto_total)])
             rows.append([])
             rows.append(['Total', '', '', '', total])
-            return _generar_excel(
+            return _generar_pdf(
+                'Ventas por Periodo', headers, rows,
+                _nombre_pdf('ventas_por_periodo', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            ) if _quiere_pdf() else _generar_excel(
                 'Ventas por Periodo', headers, rows,
                 _nombre_archivo('ventas', desde, hasta),
                 subtitulo=_subtitulo_periodo(desde, hasta)
@@ -320,7 +378,11 @@ def ganancias():
                 rows.append(['Año', 'Mes', 'Ingresos (Q)'])
                 for m in por_mes:
                     rows.append([m['anio'], m['mes'], m['ingresos']])
-            return _generar_excel(
+            return _generar_pdf(
+                'Ganancias', headers, rows,
+                _nombre_pdf('ganancias', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            ) if _quiere_pdf() else _generar_excel(
                 'Ganancias', headers, rows,
                 _nombre_archivo('ganancias', desde, hasta),
                 subtitulo=_subtitulo_periodo(desde, hasta)
@@ -428,7 +490,11 @@ def productos_mas_vendidos():
         if excel:
             headers = ['Producto', 'Marca', 'Unidades Vendidas', 'Ingresos (Q)']
             rows = [[d['nombre'], d['marca'], d['total_vendidos'], d['total_ingresos']] for d in data]
-            return _generar_excel(
+            return _generar_pdf(
+                'Productos Mas Vendidos', headers, rows,
+                _nombre_pdf('productos_mas_vendidos', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            ) if _quiere_pdf() else _generar_excel(
                 'Productos Mas Vendidos', headers, rows,
                 _nombre_archivo('productos_mas_vendidos', desde, hasta),
                 subtitulo=_subtitulo_periodo(desde, hasta)
@@ -484,7 +550,11 @@ def clientes_top():
         if excel:
             headers = ['Cliente', 'Email', 'Pedidos', 'Total Gastado (Q)']
             rows = [[d['nombre'], d['email'], d['total_pedidos'], d['total_gastado']] for d in data]
-            return _generar_excel(
+            return _generar_pdf(
+                'Clientes Top', headers, rows,
+                _nombre_pdf('clientes_top', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            ) if _quiere_pdf() else _generar_excel(
                 'Clientes Top', headers, rows,
                 _nombre_archivo('clientes_top', desde, hasta),
                 subtitulo=_subtitulo_periodo(desde, hasta)
@@ -612,7 +682,11 @@ def ventas_con_descuento():
                 rows.append([])
                 rows.append([f"Periodo anterior ({comparacion['desde']} al {comparacion['hasta']})", comparacion['unidades'], '', comparacion['ingresos'], '', '', ''])
                 rows.append(['Variacion de ingresos (%)', comparacion['variacion_ingresos_porcentaje'] if comparacion['variacion_ingresos_porcentaje'] is not None else '', '', '', '', '', ''])
-            return _generar_excel(
+            return _generar_pdf(
+                'Ventas con Descuento', headers, rows,
+                _nombre_pdf('ventas_con_descuento', desde, hasta),
+                subtitulo=_subtitulo_periodo(desde, hasta)
+            ) if _quiere_pdf() else _generar_excel(
                 'Ventas con Descuento', headers, rows,
                 _nombre_archivo('ventas_con_descuento', desde, hasta),
                 subtitulo=_subtitulo_periodo(desde, hasta)
