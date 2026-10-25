@@ -5,7 +5,24 @@ on:
     branches: [ main ]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run pytest
+        run: python -m pytest tests/ -q
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -23,16 +40,15 @@ jobs:
             set -e
             cd /var/www/keibeauty-backend/KeiBeauty
             git pull origin main
-            source /var/www/keibeauty-backend/venv/bin/activate
-            pip install --upgrade pip
-            pip install -r requirements.txt
-            echo "--- Aplicando migraciones (flask db upgrade) ---"
-            flask db upgrade
-            echo "--- Reiniciando servicios ---"
-            sudo systemctl restart keibeauty
-            sudo systemctl restart nginx
-            echo "--- Estado del servicio ---"
-            sudo systemctl status keibeauty --no-pager || true
+            echo "--- Docker prod (build + up) ---"
+            docker compose -f docker-compose.prod.yml build api
+            docker compose -f docker-compose.prod.yml up -d api
+            echo "--- Migraciones dentro del contenedor ---"
+            docker compose -f docker-compose.prod.yml exec -T api flask db upgrade
+            echo "--- Health via nginx ---"
+            sleep 5
+            curl -fsS http://127.0.0.1:5000/health || curl -fsS http://127.0.0.1/health
+            docker compose -f docker-compose.prod.yml ps
 
       - name: Verificar health check
         uses: appleboy/ssh-action@v1.0.3
