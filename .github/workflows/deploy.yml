@@ -44,15 +44,20 @@ jobs:
             set -e
             cd /var/www/keibeauty-backend/KeiBeauty
             git pull origin main
+            echo "--- Docker (instala si falta) ---"
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | sudo sh
+            fi
+            sudo systemctl enable --now docker
             echo "--- Docker prod (build + up) ---"
-            docker compose -f docker-compose.prod.yml build api
-            docker compose -f docker-compose.prod.yml up -d api
+            sudo docker compose -f docker-compose.prod.yml build api
+            sudo docker compose -f docker-compose.prod.yml up -d api
             echo "--- Migraciones dentro del contenedor ---"
-            docker compose -f docker-compose.prod.yml exec -T api flask db upgrade
+            sudo docker compose -f docker-compose.prod.yml exec -T api flask db upgrade
             echo "--- Health via nginx ---"
             sleep 5
             curl -fsS http://127.0.0.1:5000/health || curl -fsS http://127.0.0.1/health
-            docker compose -f docker-compose.prod.yml ps
+            sudo docker compose -f docker-compose.prod.yml ps
 
       - name: Verificar health check
         uses: appleboy/ssh-action@v1.0.3
