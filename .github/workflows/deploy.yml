@@ -19,6 +19,10 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run pytest
+        env:
+          # Los tests solo importan la app, no suben imágenes: basta un valor
+          # ficticio para que routes/products.py no reviente al importar.
+          IMAGEKIT_PRIVATE_KEY: test-dummy-key
         run: python -m pytest tests/ -q
 
   deploy:
